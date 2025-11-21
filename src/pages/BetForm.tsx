@@ -425,7 +425,7 @@ export const BetForm: React.FC = () => {
       <form onSubmit={handleSubmit} className="bg-white dark:bg-dark-800 shadow-md rounded-lg px-8 pt-6 pb-8 mb-4">
         <div className="grid grid-cols-1 gap-6">
           <div className="hidden md:grid gap-8" style={{
-            gridTemplateColumns: `repeat(${houseCount}, minmax(0, 1fr))`
+            gridTemplateColumns: `repeat(${houseCount > 2 ? 2 : houseCount}, minmax(0, 1fr))`
           }}>
             {['A', 'B', 'C', 'D', 'E'].map((house) => (
               <div key={house} className={house >= String.fromCharCode('A'.charCodeAt(0) + houseCount) ? 'hidden' : ''}>
