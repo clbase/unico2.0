@@ -115,6 +115,7 @@ export function AumentadaCalculator({
             onChange={(e) => setTotalStake(Number(e.target.value))}
             disabled={bets.some(bet => bet.isFixed)}
             autoComplete="off"
+            translate="no"
             className={`w-full px-2 sm:px-4 py-1.5 sm:py-3 text-base sm:text-xl border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
               isDarkMode 
                 ? 'bg-[#111112] border-gray-800 text-gray-100' 
@@ -149,6 +150,7 @@ export function AumentadaCalculator({
               <div className="col-span-3 sm:col-span-2">
                 <input
                   type="text"
+                  translate="no"
                   value={bet.oddsInput || ''}
                   onChange={(e) => updateBet(index, 'odds', e.target.value)}
                   autoComplete="off"
@@ -160,6 +162,7 @@ export function AumentadaCalculator({
                 <div className="relative flex items-center">
                   <input
                     type="number"
+                    translate="no"
                     value={bet.increase || ''}
                     onChange={(e) => updateBet(index, 'increase', e.target.value)}
                     autoComplete="off"
@@ -172,7 +175,7 @@ export function AumentadaCalculator({
                       <HelpCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
                       <div className={`absolute bottom-full right-0 mb-1 sm:mb-2 px-1 sm:px-2 py-0.5 sm:py-1 text-[9px] sm:text-xs rounded shadow-sm sm:shadow-lg whitespace-nowrap border-[0.5px] sm:border ${
                         isDarkMode ? 'bg-dark-700 text-gray-200 border-gray-600' : 'bg-white text-gray-800 border-gray-200'
-                      }`}>
+                      }`} translate="no">
                         Odd Final: {finalOdds.toFixed(2)}
                       </div>
                     </div>
@@ -183,6 +186,7 @@ export function AumentadaCalculator({
                 <div className="flex-1 flex items-center gap-2">
                   <input
                     type="number"
+                    translate="no"
                     value={bet.isFixed ? (bet.stake || '') : stake.toFixed(2)}
                     onChange={(e) => handleStakeChange(index, e.target.value)}
                     disabled={!bet.isFixed}
@@ -211,7 +215,7 @@ export function AumentadaCalculator({
                 </button>
               </div>
               <div className="col-span-1 sm:col-span-2 hidden sm:block text-xs sm:text-base">
-                R$ {return_.toFixed(2)}
+                <span translate="no">R$ {return_.toFixed(2)}</span>
               </div>
               <div className="col-span-1 sm:col-span-2 flex items-center gap-1">
                 {toggleAutoPunctuate && (

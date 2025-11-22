@@ -24,9 +24,12 @@ export function CalculatorStats({ profit, totalReturn, totalInvestment, hideResu
       {/* ROI sempre aparece (pode ser 0) */}
       <div className="flex justify-between items-center">
         <span className="text-xs sm:text-base font-medium">ROI:</span>
-        <span className={`text-base sm:text-xl font-semibold ${
-          hideResults ? 'text-gray-500' : (displayProfit < 0 ? 'text-red-500' : 'text-green-500')
-        }`}>
+        <span 
+          className={`text-base sm:text-xl font-semibold ${
+            hideResults ? 'text-gray-500' : (displayProfit < 0 ? 'text-red-500' : 'text-green-500')
+          }`}
+          translate="no" // <-- CORREÇÃO 1: Protege o ROI
+        >
           {hideResults ? '-' : (isFinite(roi) ? `${roi.toFixed(2)}%` : '∞')}
         </span>
       </div>
@@ -34,18 +37,24 @@ export function CalculatorStats({ profit, totalReturn, totalInvestment, hideResu
       {/* Se hideResults for true, não mostra Lucro e Retorno, ou mostra traço */}
       <div className="flex justify-between items-center">
         <span className="text-xs sm:text-base font-medium">Lucro:</span>
-        <span className={`text-base sm:text-xl font-semibold ${
-          hideResults ? 'text-gray-500' : (displayProfit < 0 ? 'text-red-500' : 'text-green-500')
-        }`}>
+        <span 
+          className={`text-base sm:text-xl font-semibold ${
+            hideResults ? 'text-gray-500' : (displayProfit < 0 ? 'text-red-500' : 'text-green-500')
+          }`}
+          translate="no" // <-- CORREÇÃO 2: Protege o Lucro
+        >
           {hideResults ? '-' : `R$ ${displayProfit.toFixed(2)}`}
         </span>
       </div>
       
       <div className="flex justify-between items-center">
         <span className="text-xs sm:text-base font-medium">Retorno:</span>
-        <span className={`text-base sm:text-xl font-semibold ${
-          hideResults ? 'text-gray-500' : 'text-blue-500'
-        }`}>
+        <span 
+          className={`text-base sm:text-xl font-semibold ${
+            hideResults ? 'text-gray-500' : 'text-blue-500'
+          }`}
+          translate="no" // <-- CORREÇÃO 3: Protege o Retorno
+        >
           {hideResults ? '-' : `R$ ${displayReturn.toFixed(2)}`}
         </span>
       </div>

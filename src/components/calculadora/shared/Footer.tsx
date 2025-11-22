@@ -89,7 +89,7 @@ export function Footer({ isDarkMode }: FooterProps) {
               className="h-10 w-auto"
             />
             <p className="text-xs text-gray-500">
-              © 2023 - {currentYear} Vivendo de Sure.
+              © 2024 - {currentYear} Vivendo de Sure.
               <br />
               Todos os direitos reservados.
             </p>

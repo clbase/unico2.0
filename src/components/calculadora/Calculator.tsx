@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Calculator, Loader2, HelpCircle, LayoutDashboard, Send } from 'lucide-react';
+import { Calculator, Loader2, HelpCircle, LayoutDashboard, Send, Plus, Trash2, Sun, Moon, Share2 } from 'lucide-react';
 import { DutchingCalculator } from './dutching/DutchingCalculator';
 import { LimitationCalculator } from './limitation/LimitationCalculator';
 import { AumentadaCalculator } from './aumentada/AumentadaCalculator';
@@ -593,19 +593,61 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     } else {
       return null;
     }
+    
+    // Classe base para botões compactos (todos os botões da primeira seção)
+    const compactButtonClass = `p-2 rounded-md transition-colors flex items-center justify-center 
+                                ${isDark ? 'text-gray-300 border border-gray-600 hover:bg-dark-750' : 'text-gray-700 border border-gray-400 hover:bg-gray-100'}`;
+    
+    // Classe para o botão de Planilhar
+    const planilhaButtonClass = `flex items-center gap-2 px-4 py-2 rounded-md transition-colors text-sm 
+                                ${isDark ? 'text-green-400 border border-green-500 hover:bg-[#111112]' : 'text-green-600 border border-green-600 hover:bg-green-50'}`;
 
     return (
       <div className="flex flex-wrap gap-2 mt-6">
-        <button onClick={addNewBet} className={`px-4 py-2 rounded-md transition-colors ${isDark ? 'text-gray-300 border border-gray-600 hover:bg-[#111112]' : 'text-gray-700 border border-gray-400 hover:bg-gray-100'}`}>Adicionar Linha</button>
-        <button onClick={resetCalculator} className={`px-4 py-2 rounded-md transition-colors ${isDark ? 'text-gray-300 border border-gray-600 hover:bg-[#111112]' : 'text-gray-700 border border-gray-400 hover:bg-gray-100'}`}>Limpar</button>
-        <button onClick={toggleTheme} className={`px-4 py-2 rounded-md transition-colors ${isDark ? 'text-gray-300 border border-gray-600 hover:bg-[#111112]' : 'text-gray-700 border border-gray-400 hover:bg-gray-100'}`}>{isDark ? 'Tema Claro' : 'Tema Escuro'}</button>
+        {/* 1. Adicionar Linha (+) - Ícone + p-2 em ambos */}
+        <button 
+            onClick={addNewBet} 
+            className={compactButtonClass}
+            title="Adicionar Linha"
+        >
+            <Plus className="w-5 h-5" />
+        </button>
+
+        {/* 2. Tema (Sun/Moon) - Ícone + p-2 em ambos */}
+        <button 
+            onClick={toggleTheme} 
+            className={compactButtonClass}
+            title={isDark ? 'Tema Claro' : 'Tema Escuro'}
+        >
+            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
+        
+        {/* 3. Limpar (Trash2) - Ícone + p-2 em ambos */}
+        <button 
+          onClick={resetCalculator} 
+          className={compactButtonClass}
+          title="Limpar"
+        >
+          <Trash2 className="w-5 h-5" />
+        </button>
+
+
         <div id="tour-share-btn" className="flex flex-wrap gap-2 ml-auto">
-          <a href={generatePlanilhaUrl()} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-md transition-colors text-xs sm:text-base ${isDark ? 'text-green-400 border border-green-500 hover:bg-[#111112]' : 'text-green-600 border border-green-600 hover:bg-green-50'}`}>
-            <Send className="w-3 h-3 sm:w-4 sm:h-4" />
-            <span className="hidden sm:inline">Enviar p/ Planilha</span>
-            <span className="sm:hidden">Planilha</span>
+          {/* 4. Planilhar (Icon + Text on Desktop/Icon + Short Text on Mobile) */}
+          <a href={generatePlanilhaUrl()} target="_blank" rel="noopener noreferrer" className={planilhaButtonClass}>
+            <Send className="w-4 h-4" />
+            <span className="hidden sm:inline">Planilhar</span>
+            <span className="sm:hidden">Planilhar</span>
           </a>
-          <ShareButton isDarkMode={isDark} calculatorType={activeTab} bets={shareBets} totalStake={shareStake} />
+          
+          {/* 5. Compartilhar (Icon-only - compactMode=true) */}
+          <ShareButton 
+             isDarkMode={isDark} 
+             calculatorType={activeTab} 
+             bets={shareBets} 
+             totalStake={shareStake} 
+             compactMode={true}
+          />
         </div>
       </div>
     );
@@ -626,7 +668,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
             <div className="flex items-center gap-2">
               <a href="/planilha" target="_blank" rel="noopener noreferrer" title="Ir para Planilha (Nova Aba)" className={`flex items-center gap-2 p-2 rounded-lg transition-colors text-sm ${isDark ? 'text-gray-300 bg-dark-900 hover:bg-dark-700' : 'text-gray-600 bg-gray-100 hover:bg-gray-200'}`}>
                 <LayoutDashboard className="w-5 h-5" />
-                <span className="hidden sm:inline">Planilha</span>
+                <span className="sm:inline">Planilha</span>
               </a>
               <button onClick={() => { setActiveTab('dutching'); setIsTourActive(true); }} title="Iniciar Tour de Ajuda" className={`p-2 rounded-full transition-colors ${isDark ? 'text-gray-400 hover:bg-dark-900 hover:text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'}`}>
                 <HelpCircle className="w-6 h-6" />

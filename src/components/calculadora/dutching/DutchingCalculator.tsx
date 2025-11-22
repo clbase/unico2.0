@@ -46,6 +46,7 @@ export function DutchingCalculator({
             value={totalStake || ''}
             onChange={(e) => setTotalStake(Number(e.target.value))}
             autoComplete="off"
+            translate="no"
             className={`w-full px-2 sm:px-4 py-1.5 sm:py-3 text-base sm:text-xl border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
               isDarkMode
                 ? 'bg-[#111112] border-gray-800 text-gray-100'
@@ -70,6 +71,7 @@ export function DutchingCalculator({
             <div className="col-span-3 sm:col-span-2">
               <input
                 type="text"
+                translate="no"
                 value={bet.oddsInput || ''}
                 onChange={(e) => updateBet(index, e.target.value)}
                 autoComplete="off"
@@ -79,7 +81,7 @@ export function DutchingCalculator({
               />
             </div>
             <div className="col-span-4 flex items-center gap-1 sm:gap-3 text-xs sm:text-base">
-              <span>R$ {bet.stake.toFixed(2)}</span>
+              <span translate="no">R$ {bet.stake.toFixed(2)}</span>
               <button
                 onClick={() => copyToClipboard(bet.stake)}
                 className={`p-0.5 sm:p-1.5 rounded transition-colors ${isDarkMode ? 'text-gray-500 hover:text-blue-400 hover:bg-[#111112]' : 'text-gray-400 hover:text-blue-600 hover:bg-gray-100'}`}
@@ -88,7 +90,7 @@ export function DutchingCalculator({
               </button>
             </div>
             <div className="col-span-2 sm:col-span-3 text-xs sm:text-base">
-              R$ {(bet.odds * bet.stake).toFixed(2)}
+              <span translate="no">R$ {(bet.odds * bet.stake).toFixed(2)}</span>
             </div>
             <div className="col-span-2 flex items-center gap-1">
               {toggleAutoPunctuate && (

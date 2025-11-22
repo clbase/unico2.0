@@ -1,10 +1,11 @@
-import React from 'react';
-import { Copy, Trash2, HelpCircle, Zap, Edit3 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Copy, Trash2, HelpCircle, Zap, Edit3, Settings } from 'lucide-react';
 import { LimitationBet, LimitationCalcResult } from '../types';
 import { CalculatorStats } from '../shared/CalculatorStats';
 import { PunctuateToggleButton } from '../shared/PunctuateToggleButton';
 import { FreebetToggleButton } from '../shared/FreebetToggleButton';
 import { BackLayToggle } from '../shared/BackLayToggle';
+import { LimitationTableHeader } from './LimitationTableHeader';
 
 interface LimitationCalculatorProps {
   bets: LimitationBet[];
@@ -19,16 +20,6 @@ interface LimitationCalculatorProps {
   isAutoCalculate: boolean;
   toggleAutoCalculate: () => void;
 }
-
-const LimitationTableHeader: React.FC<{ isDarkMode: boolean; isExtractionMode: boolean }> = ({ isDarkMode, isExtractionMode }) => (
-  <div className={`grid grid-cols-12 gap-1 sm:gap-4 mb-2 px-2 sm:px-4 py-3 sm:py-4 rounded-t-lg ${isDarkMode ? 'bg-dark-900' : 'bg-gray-100'} h-12 sm:h-14`}>
-    <div className="col-span-1 text-xs sm:text-base font-medium flex items-center h-full"></div>
-    <div className="col-span-3 sm:col-span-2 text-xs sm:text-base font-medium flex items-center h-full">Odds</div>
-    <div className="col-span-4 text-xs sm:text-base font-medium flex items-center h-full">Investimento</div>
-    <div className="col-span-2 sm:col-span-3 text-xs sm:text-base font-medium flex items-center h-full">Retorno</div>
-    <div className="col-span-2"></div>
-  </div>
-);
 
 export function LimitationCalculator({
   bets,
@@ -45,31 +36,51 @@ export function LimitationCalculator({
 }: LimitationCalculatorProps) {
 
   const isExtractionMode = bets.some(b => b.betMode === 'lay');
-  const { totalInvestment, profit, totalReturn, liability } = calcResult;
+  const { totalInvestment, profit, totalReturn } = calcResult;
+  const isAnyFreebetActive = bets.some(b => b.isFreebet);
 
+  // Estado para controlar qual menu de configurações está aberto (índice da linha)
+  // Usado apenas no Mobile
+  const [openSettingsIndex, setOpenSettingsIndex] = useState<number | null>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  // Fecha o menu ao clicar fora
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setOpenSettingsIndex(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // Estilos
   const inputStyle = `w-full px-2 sm:px-3 py-1 sm:py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isDarkMode ? 'bg-[#111112] border-gray-800 text-gray-100' : 'bg-white border-gray-300 text-gray-900'} text-sm sm:text-lg`;
   const disabledInputStyle = `opacity-50 cursor-not-allowed bg-gray-100 dark:bg-dark-800`;
-  const isAnyFreebetActive = bets.some(b => b.isFreebet);
 
   return (
     <div className="space-y-4 relative">
       
-      {/* Button Positioned Absolutely at Top Right */}
-      <div className="absolute -top-12 right-0 sm:-top-14">
+      {/* Botão de Modo Automático/Manual - OCULTO NO MOBILE (hidden sm:flex) */}
+      <div className="hidden sm:flex absolute -top-14 right-0">
          <button
             onClick={toggleAutoCalculate}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-xs sm:text-sm ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm ${
                isAutoCalculate
                   ? 'bg-[#3c3c3c] text-white hover:bg-[#2b2b2b]' 
                   : (isDarkMode ? 'bg-dark-700 text-gray-300 border border-gray-600 hover:bg-dark-600' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50')
             }`}
             title={isAutoCalculate ? "Modo Automático (Dutching)" : "Modo Manual (Livre)"}
          >
-            {isAutoCalculate ? <Zap className="w-3 h-3 sm:w-4 sm:h-4" /> : <Edit3 className="w-3 h-3 sm:w-4 sm:h-4" />}
-            {isAutoCalculate ? "Automático" : "Manual"}
+            {isAutoCalculate ? <Zap className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+            <span>{isAutoCalculate ? "Automático" : "Manual"}</span>
          </button>
       </div>
 
+      {/* Resumo do Investimento e Stats */}
       <div className="grid grid-cols-2 gap-4 sm:gap-8 mb-4 sm:mb-8 mt-2">
         <div>
           <label className="block text-xs sm:text-base font-medium mb-1 sm:mb-2">
@@ -80,6 +91,7 @@ export function LimitationCalculator({
             value={totalInvestment.toFixed(2)}
             disabled
             autoComplete="off"
+            translate="no"
             className={`w-full px-2 sm:px-4 py-1.5 sm:py-3 text-base sm:text-xl border rounded-md bg-opacity-75 cursor-not-allowed ${
               isDarkMode
                 ? 'bg-[#111112] border-gray-800 text-gray-100'
@@ -97,15 +109,13 @@ export function LimitationCalculator({
       </div>
 
       <div className="mb-4 sm:mb-8">
-        <LimitationTableHeader isDarkMode={isDarkMode} isExtractionMode={isExtractionMode} />
+        <LimitationTableHeader isDarkMode={isDarkMode} />
+        
         {bets.map((bet, index) => {
           
           const isLay = bet.betMode === 'lay';
-          const oddLabel = isLay ? "Odd Lay" : "Odds";
-          const stakeLabel = isLay ? "Investimento (Lay)" : "Investimento";
-          const returnLabel = "Retorno";
           
-          // Display Logic: Use stakeInput if available/editing, else calculated stake
+          // Display Logic
           let displayStake: string | number = 0;
 
           if (isAutoCalculate) {
@@ -138,22 +148,19 @@ export function LimitationCalculator({
           }
           
           const returnColor = isLay ? 'text-blue-500' : (isDarkMode ? 'text-white' : 'text-gray-700');
-          
           const isStakeDisabled = isAutoCalculate ? (isAnyFreebetActive ? !bet.isFreebet : false) : false;
-
-          // Cálculo da responsabilidade individual para exibição
           const currentLineLiability = isLay ? (Number(displayStake) * ((bet.layOdd || 0) - 1)) : 0;
 
           return (
-            <div key={index} className={`grid grid-cols-12 gap-1 sm:gap-4 px-2 sm:px-4 py-1.5 sm:py-3 items-start border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
-              <div className="col-span-1 text-xs sm:text-base font-medium pt-2 sm:pt-3">{index + 1}º</div>
+            <div key={index} className={`grid grid-cols-12 gap-1 sm:gap-4 px-2 sm:px-4 py-2 sm:py-3 items-center border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+              <div className="col-span-1 text-xs sm:text-base font-medium">{index + 1}º</div>
               
               {/* Column 1: Odds */}
-              <div className="col-span-3 sm:col-span-2 pt-1 sm:pt-0">
-                <label className="sm:hidden text-[10px] font-medium text-gray-500">{oddLabel}</label>
+              <div className="col-span-3 sm:col-span-2">
                 <div className="relative">
                   <input
                     type="text"
+                    translate="no"
                     value={isLay ? (bet.layOddInput ?? '') : (bet.oddsInput || '')}
                     onChange={(e) => updateBet(index, isLay ? 'layOdd' : 'odds', e.target.value)}
                     autoComplete="off"
@@ -166,7 +173,7 @@ export function LimitationCalculator({
                       <HelpCircle className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
                       <div className={`absolute bottom-full right-0 mb-1 px-2 py-1 text-xs rounded shadow-lg whitespace-nowrap border z-10 ${
                         isDarkMode ? 'bg-dark-900 text-gray-200 border-gray-700' : 'bg-white text-gray-800 border-gray-200'
-                      } opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none`}>
+                      } opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none`} translate="no">
                         Odd Real: {(bet.odds - 1).toFixed(2)}
                       </div>
                     </div>
@@ -175,77 +182,131 @@ export function LimitationCalculator({
               </div>
               
               {/* Column 2: Investment */}
-              <div className="col-span-4 flex items-start gap-1 sm:gap-3 text-xs sm:text-base pt-1 sm:pt-0">
-                <div className="w-full relative">
-                  <label className="sm:hidden text-[10px] font-medium text-gray-500">{stakeLabel}</label>
-                  <input
-                    type="number"
-                    value={displayStake}
-                    onChange={(e) => updateBet(index, 'stake', e.target.value)}
-                    autoComplete="off"
-                    disabled={isStakeDisabled}
-                    // Removido o 'pr-8' que era usado para o ícone de ajuda
-                    className={`${inputStyle} ${isStakeDisabled ? disabledInputStyle : ''}`}
-                    placeholder="0.00"
-                    step="0.01"
-                  />
-                  
-                  {/* Nova Exibição de Responsabilidade abaixo do input (apenas LAY) */}
-                  {isLay && currentLineLiability > 0 && (
-                    <div className="text-[10px] sm:text-xs text-red-500 mt-1 font-medium">
-                      Responsabilidade: R$ {currentLineLiability.toFixed(2)}
+              <div className="col-span-4 flex flex-col justify-center">
+                 <div className="flex items-center gap-1 sm:gap-3">
+                    <div className="w-full relative">
+                      <input
+                        type="number"
+                        translate="no"
+                        value={displayStake}
+                        onChange={(e) => updateBet(index, 'stake', e.target.value)}
+                        autoComplete="off"
+                        disabled={isStakeDisabled}
+                        className={`${inputStyle} ${isStakeDisabled ? disabledInputStyle : ''}`}
+                        placeholder="0.00"
+                        step="0.01"
+                      />
+                    </div>
+                    <button
+                      onClick={() => copyToClipboard(Number(displayStake) || 0)}
+                      className={`p-1.5 rounded transition-colors ${isDarkMode ? 'text-gray-500 hover:text-blue-400 hover:bg-[#111112]' : 'text-gray-400 hover:text-blue-600 hover:bg-gray-100'}`}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                 </div>
+                 
+                 {/* Liability Message (Lay) */}
+                 {isLay && currentLineLiability > 0 && (
+                    <div className="text-[9px] sm:text-xs text-red-500 font-medium mt-0.5" translate="no">
+                      Resp: R$ {currentLineLiability.toFixed(2)}
                     </div>
                   )}
-                </div>
-                
-                <button
-                  onClick={() => copyToClipboard(Number(displayStake) || 0)}
-                  className={`p-0.5 sm:p-1.5 rounded transition-colors mt-1 ${isDarkMode ? 'text-gray-500 hover:text-blue-400 hover:bg-[#111112]' : 'text-gray-400 hover:text-blue-600 hover:bg-gray-100'}`}
-                >
-                  <Copy className="w-3 h-3 sm:w-5 sm:h-5" />
-                </button>
               </div>
               
               {/* Column 3: Return */}
-              <div className="col-span-2 sm:col-span-3 text-xs sm:text-base pt-2 sm:pt-3">
-                <label className="sm:hidden text-[10px] font-medium text-gray-500">{returnLabel}</label>
+              <div className="col-span-2 sm:col-span-3 text-xs sm:text-base flex flex-col justify-center">
                 <div>
-                   <span className={returnColor}>
+                   <span className={returnColor} translate="no">
                      R$ {displayReturn.toFixed(2)}
                    </span>
                    {!isAutoCalculate && totalInvestment > 0 && (
-                       <div className={`text-[10px] sm:text-xs ${lineProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                       <div className={`text-[9px] sm:text-xs ${lineProfit >= 0 ? 'text-green-500' : 'text-red-500'}`} translate="no">
                           {lineProfit > 0 ? '+' : ''}{lineProfit.toFixed(2)} ({lineRoi.toFixed(2)}%)
                        </div>
                    )}
                 </div>
               </div>
               
-              {/* Column 4: Actions */}
-              <div className="col-span-2 flex items-center gap-1 pt-2 sm:pt-3">
-                <BackLayToggle
-                  betMode={bet.betMode}
-                  onToggle={() => toggleBetMode(index)}
-                  isDarkMode={isDarkMode}
-                />
-                <PunctuateToggleButton
-                  isEnabled={bet.autoPunctuate !== false}
-                  onToggle={() => toggleAutoPunctuate(index)}
-                  isDarkMode={isDarkMode}
-                />
-                <FreebetToggleButton
-                  isEnabled={bet.isFreebet === true}
-                  onToggle={() => toggleFreebet(index)}
-                  isDarkMode={isDarkMode}
-                />
+              {/* Column 4: Actions (Gear/Buttons + Delete) */}
+              <div className="col-span-2 flex items-center justify-end gap-1 relative">
+                
+                {/* --- DESKTOP: Botões visíveis (hidden sm:flex) --- */}
+                <div className="hidden sm:flex items-center gap-1">
+                  <BackLayToggle
+                    betMode={bet.betMode}
+                    onToggle={() => toggleBetMode(index)}
+                    isDarkMode={isDarkMode}
+                  />
+                  <PunctuateToggleButton
+                    isEnabled={bet.autoPunctuate !== false}
+                    onToggle={() => toggleAutoPunctuate(index)}
+                    isDarkMode={isDarkMode}
+                  />
+                  <FreebetToggleButton
+                    isEnabled={bet.isFreebet === true}
+                    onToggle={() => toggleFreebet(index)}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
+
+                {/* --- MOBILE: Engrenagem (sm:hidden) --- */}
+                <div className="sm:hidden relative">
+                  <button
+                    onClick={() => setOpenSettingsIndex(openSettingsIndex === index ? null : index)}
+                    className={`p-1.5 rounded transition-colors ${
+                      openSettingsIndex === index 
+                        ? 'bg-[#7200C9] text-white' 
+                        : (isDarkMode ? 'text-gray-400 hover:bg-dark-800' : 'text-gray-500 hover:bg-gray-100')
+                    }`}
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+
+                  {/* Popover Menu (Só abre no mobile) */}
+                  {openSettingsIndex === index && (
+                    <div 
+                      ref={settingsRef}
+                      className={`absolute right-0 top-8 z-50 p-2 rounded-lg shadow-2xl border flex gap-2 items-center animate-fade-in ${
+                        isDarkMode ? 'bg-dark-800 border-gray-700' : 'bg-white border-gray-200'
+                      }`}
+                      style={{ minWidth: '140px' }}
+                    >
+                       {/* Arrow pointing up */}
+                       <div className={`absolute -top-1.5 right-2.5 w-3 h-3 rotate-45 border-l border-t ${
+                          isDarkMode ? 'bg-dark-800 border-gray-700' : 'bg-white border-gray-200'
+                       }`}></div>
+
+                      <div className="flex gap-2 relative z-10">
+                          <BackLayToggle
+                            betMode={bet.betMode}
+                            onToggle={() => toggleBetMode(index)}
+                            isDarkMode={isDarkMode}
+                          />
+                          <PunctuateToggleButton
+                            isEnabled={bet.autoPunctuate !== false}
+                            onToggle={() => toggleAutoPunctuate(index)}
+                            isDarkMode={isDarkMode}
+                          />
+                          <FreebetToggleButton
+                            isEnabled={bet.isFreebet === true}
+                            onToggle={() => toggleFreebet(index)}
+                            isDarkMode={isDarkMode}
+                          />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Botão Deletar (Visível em ambos se houver mais de 2 apostas) */}
                 {bets.length > 2 && (
                   <button
                     onClick={() => removeBet(index)}
-                    className={`p-0.5 sm:p-1.5 rounded transition-colors ${isDarkMode ? 'text-red-500 hover:text-red-400 hover:bg-[#111112]' : 'text-red-500 hover:text-red-600 hover:bg-gray-100'}`}
+                    className={`p-1.5 rounded transition-colors ${isDarkMode ? 'text-red-500 hover:text-red-400 hover:bg-[#111112]' : 'text-red-500 hover:text-red-600 hover:bg-gray-100'}`}
                   >
-                    <Trash2 className="w-3 h-3 sm:w-5 sm:h-5" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
+
               </div>
             </div>
           );
