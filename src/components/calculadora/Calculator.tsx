@@ -26,12 +26,6 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
   
   const [isTourActive, setIsTourActive] = useState(false);
 
-  const LoadingSpinner = () => (
-    <div className="flex justify-center items-center py-20">
-      <Loader2 className={`w-8 h-8 animate-spin ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
-    </div>
-  );
-
   const [activeTab, setActiveTab] = useState<CalculatorType>('dutching');
   const [totalStake, setTotalStake] = useState<number>(100);
   const [aumentadaTotalStake, setAumentadaTotalStake] = useState<number>(100);
@@ -50,8 +44,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
 
   const [isAutoCalculate, setIsAutoCalculate] = useState(true);
   
-  // ----- FUNÇÕES DE CÁLCULO -----
-
+  // --- Lógica Dutching (Padrão) ---
   const calculateDutching = useCallback(() => {
     const validBets = bets.filter(bet => bet.odds > 0);
     if (validBets.length === 0 || totalStake <= 0) {
@@ -80,6 +73,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     }
   }, [bets, totalStake]);
 
+  // --- Lógica Aumentada (Corrigida para Dutching) ---
   const calculateAumentada = useCallback(() => {
     const validBets = aumentadaBets.filter(bet => bet.odds > 0);
     if (validBets.length === 0) {
@@ -88,13 +82,14 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
       }
       return;
     }
+    
     const fixedBet = validBets.find(bet => bet.isFixed);
+    
+    // Caso 1: Existe uma aposta fixa (calcula as outras com base nela)
     if (fixedBet) {
-      const fixedReturn = (fixedBet.stake || 0) * (fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100));
-      if (fixedReturn <= 0) {
-        setAumentadaBets(aumentadaBets.map(b => ({ ...b, stake: (b.isFixed ? b.stake : 0) })));
-        return;
-      }
+      const finalOddFixed = fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100);
+      const fixedReturn = (fixedBet.stake || 0) * finalOddFixed;
+
       const newBets = aumentadaBets.map(bet => {
         if (bet === fixedBet || bet.odds <= 0) return bet;
         const finalOdds = bet.odds + (bet.odds - 1) * (bet.increase / 100);
@@ -102,27 +97,55 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
         const stake = +(fixedReturn / finalOdds).toFixed(2);
         return { ...bet, stake };
       });
+      
       if (JSON.stringify(aumentadaBets) !== JSON.stringify(newBets)) {
         setAumentadaBets(newBets);
       }
-    } else {
+    } 
+    // Caso 2: Nenhuma fixa (calcula Dutching baseado no total)
+    else {
       if (aumentadaTotalStake <= 0) {
         if (aumentadaBets.some(b => b.stake !== 0)) {
           setAumentadaBets(aumentadaBets.map(b => ({ ...b, stake: 0 })));
         }
         return;
       }
-      const stakePerBet = aumentadaTotalStake / validBets.length;
-      const newBets = aumentadaBets.map(bet => {
-        if (bet.odds <= 0) return { ...bet, stake: 0 };
-        return { ...bet, stake: stakePerBet };
+      
+      // 1. Prepara as odds finais
+      const betsWithFinalOdds = validBets.map(bet => ({
+        ...bet,
+        finalOdd: bet.odds + (bet.odds - 1) * (bet.increase / 100)
+      }));
+
+      // 2. Soma dos inversos (Dutching)
+      const sumInverse = betsWithFinalOdds.reduce((sum, bet) => {
+        return bet.finalOdd > 0 ? sum + (1 / bet.finalOdd) : sum;
+      }, 0);
+
+      // 3. Distribui o stake
+      const newBets = aumentadaBets.map((bet) => {
+        const finalOdd = bet.odds + (bet.odds - 1) * (bet.increase / 100);
+        if (finalOdd <= 0 || sumInverse <= 0 || bet.odds <= 0) return { ...bet, stake: 0 };
+        
+        const rawStake = aumentadaTotalStake / (finalOdd * sumInverse);
+        return { ...bet, stake: +rawStake.toFixed(2) };
       });
+      
+      // 4. Ajuste de centavos
+      const currentTotal = newBets.reduce((sum, b) => sum + b.stake, 0);
+      const diff = aumentadaTotalStake - currentTotal;
+      if (diff !== 0 && newBets.some(b => b.stake > 0)) {
+         const idx = newBets.findIndex(b => b.stake > 0);
+         if(idx >= 0) newBets[idx].stake = +(newBets[idx].stake + diff).toFixed(2);
+      }
+
       if (JSON.stringify(aumentadaBets) !== JSON.stringify(newBets)) {
         setAumentadaBets(newBets);
       }
     }
   }, [aumentadaBets, aumentadaTotalStake]);
   
+  // --- Lógica Limitação/Avançada ---
   const limitationCalculator = useCallback((): { newBets: LimitationBet[], calcResult: LimitationCalcResult } => {
     const bets = JSON.parse(JSON.stringify(limitationBets)) as LimitationBet[];
     const editingBet = bets.find(bet => bet.isEditing);
@@ -143,16 +166,13 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     }, 0);
     calcResult.totalInvestment = totalInvestment;
 
+    // Modo Manual
     if (!isAutoCalculate) {
       const returns = bets.map(bet => {
         const stakeVal = Number(bet.stake) || 0;
         if (!bet.odds || stakeVal <= 0) return 0;
-        
-        if (bet.betMode === 'lay') {
-          return stakeVal; 
-        } else {
-          return bet.isFreebet ? (bet.odds - 1) * stakeVal : bet.odds * stakeVal;
-        }
+        if (bet.betMode === 'lay') return stakeVal; 
+        return bet.isFreebet ? (bet.odds - 1) * stakeVal : bet.odds * stakeVal;
       });
 
       const liability = bets.reduce((sum, bet) => {
@@ -181,11 +201,55 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
       return { newBets: bets, calcResult };
     }
 
+    // Modo Automático: Se ninguém está editando, retorna estado atual
     if (!editingBet || !editingBet.stake || (editingBet.betMode === 'back' && editingBet.odds <= 0) || (editingBet.betMode === 'lay' && (editingBet.layOdd || 0) <= 0)) {
-      const newBets = bets.map(b => b.isEditing ? b : { ...b, stake: 0 });
-      return { newBets, calcResult };
+       // Se existem apostas (ex: carregadas de link), calcula resultados sem alterar stakes
+       if (bets.some(b => b.stake > 0)) {
+          const returns = bets.map(b => {
+             const s = Number(b.stake)||0;
+             if(b.betMode === 'lay') return s;
+             return b.isFreebet ? (b.odds - 1) * s : b.odds * s;
+          });
+          
+          // Calcula responsabilidade do lay
+          const liability = bets.reduce((sum, b) => {
+             const s = Number(b.stake)||0;
+             if(b.betMode === 'lay' && b.layOdd) return sum + (s * (b.layOdd - 1));
+             return sum;
+          }, 0);
+
+          // Calcula lucro se Back ganhar ou se Lay ganhar
+          let profit = 0;
+          const isExtraction = bets.some(b => b.betMode === 'lay');
+          
+          if(isExtraction) {
+             const backBet = bets.find(b => b.betMode === 'back');
+             const layBet = bets.find(b => b.betMode === 'lay');
+             if(backBet && layBet) {
+               const backProfit = (backBet.isFreebet ? (backBet.odds - 1)*backBet.stake : backBet.odds*backBet.stake - backBet.stake) - (layBet.stake * ((layBet.layOdd||0)-1));
+               const layProfit = layBet.stake - (backBet.isFreebet ? 0 : backBet.stake);
+               profit = Math.min(backProfit, layProfit);
+             }
+          } else {
+             const validR = returns.filter((_, i) => bets[i].odds > 0);
+             const minR = validR.length ? Math.min(...validR) : 0;
+             profit = minR - totalInvestment;
+          }
+
+          calcResult.stakes = bets.map(b => b.stake);
+          calcResult.returns = returns;
+          calcResult.profit = profit;
+          calcResult.totalReturn = profit + totalInvestment;
+          calcResult.liability = liability;
+          
+          return { newBets: bets, calcResult };
+       }
+       
+       const newBets = bets.map(b => b.isEditing ? b : { ...b, stake: 0 });
+       return { newBets, calcResult };
     }
 
+    // Lógica de Extração (Back + Lay)
     const isExtractionMode = bets.some(b => b.betMode === 'lay');
 
     if (isExtractionMode) {
@@ -246,6 +310,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
       };
       
     } else {
+      // Lógica Avançada (Limitation padrão)
       let editingStake = Number(editingBet.stake) || 0;
       let targetValue;
       if (editingBet.isFreebet) {
@@ -297,20 +362,15 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     
   }, [limitationBets, isAutoCalculate]);
   
+  // Effects para cálculo automático
   useEffect(() => {
-    if (activeTab === 'dutching') {
-      calculateDutching();
-    } else if (activeTab === 'aumentada') {
-      calculateAumentada();
-    }
+    if (activeTab === 'dutching') calculateDutching();
+    else if (activeTab === 'aumentada') calculateAumentada();
   }, [activeTab, calculateDutching, calculateAumentada]);
   
   const { newBets: calculatedLimitationBets, calcResult: limitationResult } = useMemo(() => {
     if (activeTab !== 'limitation') {
-      return { 
-        newBets: limitationBets, 
-        calcResult: { stakes: [], returns: [], totalReturn: 0, profit: 0, totalInvestment: 0, roi: 0, liability: 0 } 
-      };
+      return { newBets: limitationBets, calcResult: { stakes: [], returns: [], totalReturn: 0, profit: 0, totalInvestment: 0, roi: 0, liability: 0 } };
     }
     return limitationCalculator();
   }, [limitationBets, activeTab, limitationCalculator]);
@@ -323,34 +383,41 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     }
   }, [activeTab, calculatedLimitationBets, limitationBets]);
 
+  // --- RESTAURAÇÃO DO SHARE (Correção Principal) ---
   useEffect(() => {
     if (!initialState) return;
+    
     setActiveTab(initialState.type);
+    
     switch (initialState.type) {
       case 'dutching':
         setBets(initialState.bets as Bet[]);
         if (initialState.totalStake) setTotalStake(initialState.totalStake);
         break;
+        
       case 'limitation':
-        setLimitationBets((initialState.bets as LimitationBet[]).map(bet => ({
+        const limBets = initialState.bets as LimitationBet[];
+        // Calcula o total investido baseada nas apostas carregadas para exibição, se necessário
+        // Note que Limitation usa 'calcResult.totalInvestment' para exibição, não 'totalStake' state
+        setLimitationBets(limBets.map((bet, idx) => ({
           ...bet,
-          isEditing: false,
+          isEditing: idx === 0, // Define o primeiro como "ativo" para habilitar recálculos se o usuário mexer
           isFreebet: bet.isFreebet || false,
-          betMode: bet.betMode || 'back'
+          betMode: bet.betMode || 'back',
+          layOdd: bet.layOdd || 0
         })));
         break;
+        
       case 'aumentada':
         const augBets = initialState.bets as AumentadaBet[];
         const fixedBet = augBets.find(b => b.isFixed);
+        
         if (fixedBet) {
-          const fixedReturn = (fixedBet.stake || 0) * (fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100));
-          const recalculatedBets = augBets.map(bet => {
-            if (bet === fixedBet || bet.odds <= 0) return bet;
-            const finalOdds = bet.odds + (bet.odds - 1) * (bet.increase / 100);
-            const stake = finalOdds > 0 ? +(fixedReturn / finalOdds).toFixed(2) : 0;
-            return { ...bet, stake };
-          });
-          setAumentadaBets(recalculatedBets);
+          // Se tem fixa, carrega exatamente como veio (com stake manual do usuário)
+          setAumentadaBets(augBets);
+          // Atualiza o input total apenas para referência visual (soma dos stakes carregados)
+          const sumStake = augBets.reduce((acc, b) => acc + (Number(b.stake) || 0), 0);
+          setAumentadaTotalStake(sumStake);
         } else {
           setAumentadaBets(augBets);
           if (initialState.totalStake) setAumentadaTotalStake(initialState.totalStake);
@@ -416,10 +483,12 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     const newBets = [...aumentadaBets];
     if (field === 'isFixed') {
       if (value === true && !newBets[index].isFixed) {
+        // Ao fixar, garante que o valor atual (possivelmente calculado) se torne o valor fixo
         const currentCalculatedStake = newBets[index].stake;
         newBets[index].stake = currentCalculatedStake;
       }
       newBets[index] = { ...newBets[index], [field]: value as boolean };
+      // Desmarca outros se este for marcado
       if (value === true) {
         for (let i = 0; i < newBets.length; i++) {
           if (i !== index) newBets[i].isFixed = false;
@@ -535,15 +604,11 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     if (activeTab === 'dutching') {
       betsToExport = bets;
     } else if (activeTab === 'limitation') {
-      // --- CORREÇÃO AQUI: ADICIONAR NOVOS PARÂMETROS ---
       betsToExport = limitationBets
-        .filter(bet => bet.betMode === 'back' || bet.betMode === 'lay') // Pega todos
+        .filter(bet => bet.betMode === 'back' || bet.betMode === 'lay') 
         .map(bet => ({
-           // Mapeia para o formato que a planilha entende
-           // Para Lay, usamos layOdd. Para Back, odds.
            odds: bet.betMode === 'lay' ? bet.layOdd : bet.odds,
            stake: bet.stake,
-           // Envia os metadados extras
            is_freebet: bet.isFreebet,
            bet_mode: bet.betMode
         }));
@@ -558,19 +623,21 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
 
     betsToExport.slice(0, 5).forEach((bet, index) => {
       const key = houseKeys[index];
-      // Envia os dados básicos
       if (bet.odds && bet.odds > 0) {
         params.append(`odds_${key}`, bet.odds.toString());
       }
       if (bet.stake && bet.stake > 0) {
         params.append(`investment_${key}`, bet.stake.toFixed(2));
       }
-      // --- NOVOS PARÂMETROS ---
       if (bet.is_freebet) {
         params.append(`is_freebet_${key}`, 'true');
       }
       if (bet.bet_mode === 'lay') {
         params.append(`bet_mode_${key}`, 'lay');
+      }
+      // --- CORREÇÃO: Envia o parâmetro 'increase_X' se estiver na aba Aumentada ---
+      if (activeTab === 'aumentada' && bet.increase > 0) {
+        params.append(`increase_${key}`, bet.increase.toString());
       }
     });
 
@@ -594,17 +661,14 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
       return null;
     }
     
-    // Classe base para botões compactos (todos os botões da primeira seção)
     const compactButtonClass = `p-2 rounded-md transition-colors flex items-center justify-center 
                                 ${isDark ? 'text-gray-300 border border-gray-600 hover:bg-dark-750' : 'text-gray-700 border border-gray-400 hover:bg-gray-100'}`;
     
-    // Classe para o botão de Planilhar
     const planilhaButtonClass = `flex items-center gap-2 px-4 py-2 rounded-md transition-colors text-sm 
                                 ${isDark ? 'text-green-400 border border-green-500 hover:bg-[#111112]' : 'text-green-600 border border-green-600 hover:bg-green-50'}`;
 
     return (
       <div className="flex flex-wrap gap-2 mt-6">
-        {/* 1. Adicionar Linha (+) - Ícone + p-2 em ambos */}
         <button 
             onClick={addNewBet} 
             className={compactButtonClass}
@@ -613,7 +677,6 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
             <Plus className="w-5 h-5" />
         </button>
 
-        {/* 2. Tema (Sun/Moon) - Ícone + p-2 em ambos */}
         <button 
             onClick={toggleTheme} 
             className={compactButtonClass}
@@ -622,7 +685,6 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
             {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
         
-        {/* 3. Limpar (Trash2) - Ícone + p-2 em ambos */}
         <button 
           onClick={resetCalculator} 
           className={compactButtonClass}
@@ -631,16 +693,13 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
           <Trash2 className="w-5 h-5" />
         </button>
 
-
         <div id="tour-share-btn" className="flex flex-wrap gap-2 ml-auto">
-          {/* 4. Planilhar (Icon + Text on Desktop/Icon + Short Text on Mobile) */}
           <a href={generatePlanilhaUrl()} target="_blank" rel="noopener noreferrer" className={planilhaButtonClass}>
             <Send className="w-4 h-4" />
             <span className="hidden sm:inline">Planilhar</span>
             <span className="sm:hidden">Planilhar</span>
           </a>
           
-          {/* 5. Compartilhar (Icon-only - compactMode=true) */}
           <ShareButton 
              isDarkMode={isDark} 
              calculatorType={activeTab} 

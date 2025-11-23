@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { ChevronLeft, ChevronRight, ChevronDown, Gift, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Gift, RefreshCw, TrendingUp } from 'lucide-react';
 
 export const BetForm: React.FC = () => {
   const navigate = useNavigate();
@@ -19,13 +19,13 @@ export const BetForm: React.FC = () => {
   const [showHouseSelector, setShowHouseSelector] = useState(false);
   const [autoPunctuation, setAutoPunctuation] = useState(true);
 
-  // Estado para detalhes avançados (Freebet e Lay)
+  // Estado para detalhes avançados (Freebet, Lay e NOVO: Increase)
   const [betDetails, setBetDetails] = useState({
-    is_freebet_a: false, bet_mode_a: 'back',
-    is_freebet_b: false, bet_mode_b: 'back',
-    is_freebet_c: false, bet_mode_c: 'back',
-    is_freebet_d: false, bet_mode_d: 'back',
-    is_freebet_e: false, bet_mode_e: 'back',
+    is_freebet_a: false, bet_mode_a: 'back', increase_a: '',
+    is_freebet_b: false, bet_mode_b: 'back', increase_b: '',
+    is_freebet_c: false, bet_mode_c: 'back', increase_c: '',
+    is_freebet_d: false, bet_mode_d: 'back', increase_d: '',
+    is_freebet_e: false, bet_mode_e: 'back', increase_e: '',
   });
 
   const [formData, setFormData] = useState({
@@ -60,14 +60,23 @@ export const BetForm: React.FC = () => {
       const newDetails = {
         is_freebet_a: searchParams.get('is_freebet_a') === 'true',
         bet_mode_a: searchParams.get('bet_mode_a') === 'lay' ? 'lay' : 'back',
+        increase_a: searchParams.get('increase_a') || '',
+        
         is_freebet_b: searchParams.get('is_freebet_b') === 'true',
         bet_mode_b: searchParams.get('bet_mode_b') === 'lay' ? 'lay' : 'back',
+        increase_b: searchParams.get('increase_b') || '',
+
         is_freebet_c: searchParams.get('is_freebet_c') === 'true',
         bet_mode_c: searchParams.get('bet_mode_c') === 'lay' ? 'lay' : 'back',
+        increase_c: searchParams.get('increase_c') || '',
+
         is_freebet_d: searchParams.get('is_freebet_d') === 'true',
         bet_mode_d: searchParams.get('bet_mode_d') === 'lay' ? 'lay' : 'back',
+        increase_d: searchParams.get('increase_d') || '',
+
         is_freebet_e: searchParams.get('is_freebet_e') === 'true',
         bet_mode_e: searchParams.get('bet_mode_e') === 'lay' ? 'lay' : 'back',
+        increase_e: searchParams.get('increase_e') || '',
       };
       
       setFormData(newFormData);
@@ -94,6 +103,11 @@ export const BetForm: React.FC = () => {
   const toggleBetMode = (houseKey: string) => {
     const key = `bet_mode_${houseKey.toLowerCase()}` as keyof typeof betDetails;
     setBetDetails(prev => ({ ...prev, [key]: prev[key] === 'back' ? 'lay' : 'back' }));
+  };
+
+  const handleIncreaseChange = (houseKey: string, value: string) => {
+    const key = `increase_${houseKey.toLowerCase()}` as keyof typeof betDetails;
+    setBetDetails(prev => ({ ...prev, [key]: value }));
   };
 
   const formatOddsInput = (input: string): string => {
@@ -161,6 +175,9 @@ export const BetForm: React.FC = () => {
         const isFreebet = betDetails[`is_freebet_${lower}`];
         // @ts-ignore
         const betMode = betDetails[`bet_mode_${lower}`];
+        // @ts-ignore
+        const increaseStr = betDetails[`increase_${lower}`];
+        const increase = Number(increaseStr) || 0;
 
         const odds = Number(oddsStr);
         const inputStake = Number(investmentStr);
@@ -180,7 +197,12 @@ export const BetForm: React.FC = () => {
               potentialReturn = (odds - 1) * inputStake; // Lucro da freebet
            } else {
               realInvestment = inputStake;
-              potentialReturn = odds * inputStake; // Retorno total
+              
+              // CÁLCULO DA AUMENTADA PARA A PLANILHA
+              // FinalOdd = Odd + (Odd - 1) * (Aumento / 100)
+              // Retorno = Stake * FinalOdd
+              const finalOdds = odds + (odds - 1) * (increase / 100);
+              potentialReturn = inputStake * finalOdds; 
            }
         }
 
@@ -198,7 +220,8 @@ export const BetForm: React.FC = () => {
           percentage: totalInvestment > 0 ? (realInvestment / totalInvestment) * 100 : 0,
           group_id: group_id,
           is_freebet: isFreebet,
-          bet_mode: betMode
+          bet_mode: betMode,
+          increase_percentage: increase // Salva a porcentagem no banco
         };
       };
 
@@ -257,14 +280,20 @@ export const BetForm: React.FC = () => {
     const isFreebet = betDetails[`is_freebet_${houseLower}`];
     // @ts-ignore
     const betMode = betDetails[`bet_mode_${houseLower}`];
-    
-    const disableHouseName = false;
+    // @ts-ignore
+    const increase = betDetails[`increase_${houseLower}`];
 
     return (
-      <div className="space-y-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+      <div className="space-y-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg relative">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
             Casa {house}
+            {increase > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                <TrendingUp className="w-3 h-3 mr-1" />
+                {increase}%
+              </span>
+            )}
             {isFreebet && (
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                 <Gift className="w-3 h-3 mr-1" />
@@ -322,20 +351,40 @@ export const BetForm: React.FC = () => {
             required
           />
         </div>
-        <div>
-          <label className="block text-gray-700 dark:text-gray-200 text-sm font-bold mb-2">
-            {betMode === 'lay' ? 'Odd Lay' : 'Odd Back'}
-          </label>
-          <input
-            type="text"
-            name={oddsKey}
-            value={formData[oddsKey]}
-            onChange={handleChange}
-            placeholder={autoPunctuation ? "0.00" : "Ex: 2.795"}
-            className={inputStyle}
-            required
-          />
+        
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="block text-gray-700 dark:text-gray-200 text-sm font-bold mb-2">
+              {betMode === 'lay' ? 'Odd Lay' : 'Odd Back'}
+            </label>
+            <input
+              type="text"
+              name={oddsKey}
+              value={formData[oddsKey]}
+              onChange={handleChange}
+              placeholder={autoPunctuation ? "0.00" : "Ex: 2.795"}
+              className={inputStyle}
+              required
+            />
+          </div>
+          
+          {/* NOVO CAMPO: Aumento % (Apenas se não for Lay) */}
+          {betMode !== 'lay' && (
+            <div className="w-1/3">
+              <label className="block text-gray-700 dark:text-gray-200 text-sm font-bold mb-2">
+                Aumento %
+              </label>
+              <input
+                type="number"
+                value={increase}
+                onChange={(e) => handleIncreaseChange(house, e.target.value)}
+                placeholder="0"
+                className={inputStyle}
+              />
+            </div>
+          )}
         </div>
+
         <div>
           <label className="block text-gray-700 dark:text-gray-200 text-sm font-bold mb-2">
             {betMode === 'lay' ? 'Investimento (Lay Stake)' : 'Investimento (R$)'}

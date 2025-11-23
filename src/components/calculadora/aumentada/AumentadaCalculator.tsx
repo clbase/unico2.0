@@ -28,20 +28,24 @@ export function AumentadaCalculator({
   removeBet,
   toggleAutoPunctuate
 }: AumentadaCalculatorProps) {
+  
   const calculateStakesAndReturns = () => {
     const validBets = bets.filter(bet => bet.odds > 0);
     if (validBets.length === 0) return { stakes: [], returns: [], calculatedTotalStake: 0 };
 
     const fixedBet = validBets.find(bet => bet.isFixed);
 
+    // CENÁRIO 1: Existe uma aposta FIXA (Calcula o resto baseado nela)
     if (fixedBet) {
-      const fixedReturn = (fixedBet.stake || 0) * (fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100));
+      const finalOddFixed = fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100);
+      const fixedReturn = (fixedBet.stake || 0) * finalOddFixed;
 
       const stakes = validBets.map(bet => {
         if (bet === fixedBet) return bet.stake;
         
         const finalOdds = bet.odds + (bet.odds - 1) * (bet.increase / 100);
         if (finalOdds <= 0) return 0;
+        // Para ter o mesmo retorno: Stake = RetornoFixo / OddFinal
         return +(fixedReturn / finalOdds).toFixed(2);
       });
 
@@ -53,15 +57,42 @@ export function AumentadaCalculator({
       const calculatedTotalStake = stakes.reduce((sum, stake) => sum + (stake || 0), 0);
 
       return { stakes, returns, calculatedTotalStake };
-    } else {
+    } 
+    // CENÁRIO 2: Distribuição pelo Investimento Total (DUTCHING PROPORCIONAL)
+    else {
       if (totalStake <= 0) {
         return { stakes: Array(validBets.length).fill(0), returns: Array(validBets.length).fill(0), calculatedTotalStake: 0 };
       }
       
-      const stakePerBet = totalStake / validBets.length;
+      // 1. Calcular as Odds Finais (Odd + Aumento)
+      const betsWithFinalOdds = validBets.map(bet => ({
+        ...bet,
+        finalOdd: bet.odds + (bet.odds - 1) * (bet.increase / 100)
+      }));
+
+      // 2. Calcular a soma dos inversos das Odds Finais (Lógica do Dutching)
+      const sumInverse = betsWithFinalOdds.reduce((sum, bet) => {
+        return bet.finalOdd > 0 ? sum + (1 / bet.finalOdd) : sum;
+      }, 0);
+
+      // 3. Calcular os Stakes individuais
+      // Fórmula: Stake = InvestimentoTotal / (OddFinal * SomaInversos)
+      const stakes = validBets.map((bet, i) => {
+        const finalOdd = betsWithFinalOdds[i].finalOdd;
+        if (finalOdd <= 0 || sumInverse <= 0) return 0;
+        
+        const rawStake = totalStake / (finalOdd * sumInverse);
+        return +rawStake.toFixed(2);
+      });
       
-      const stakes = validBets.map(() => stakePerBet);
-      
+      // Ajuste de centavos (para bater exatamente o totalStake)
+      const currentTotalDetails = stakes.reduce((sum, s) => sum + s, 0);
+      const diff = totalStake - currentTotalDetails;
+      if (diff !== 0 && stakes.length > 0) {
+        // Adiciona a diferença na primeira aposta para fechar a conta
+        stakes[0] = +(stakes[0] + diff).toFixed(2);
+      }
+
       const returns = validBets.map((bet, i) => {
         const finalOdds = bet.odds + (bet.odds - 1) * (bet.increase / 100);
         return +(finalOdds * (stakes[i] || 0)).toFixed(2);
@@ -72,23 +103,27 @@ export function AumentadaCalculator({
   };
 
   const { stakes, returns, calculatedTotalStake } = calculateStakesAndReturns();
-  const totalReturn = returns.length > 0 ? returns[0] : 0;
+  // O retorno total no dutching deve ser igual em todas, pegamos o maior para referência
+  const totalReturn = returns.length > 0 ? Math.max(...returns) : 0;
   
-  // O lucro só é calculado se houver um retorno, senão é 0.
+  // Lucro = Retorno - Investimento
   const profit = totalReturn > 0 ? +(totalReturn - calculatedTotalStake).toFixed(2) : 0;
-
 
   const handleFixToggle = (index: number) => {
     const bet = bets[index];
     const validBetIndex = bets.filter(b => b.odds > 0).findIndex(b => b === bet);
-    const stake = validBetIndex !== -1 ? (stakes[validBetIndex] || 0) : 0;
+    
+    // Se vamos fixar esta aposta, pegamos o valor calculado atual e definimos como o stake fixo
+    const currentCalculatedStake = validBetIndex !== -1 ? (stakes[validBetIndex] || 0) : 0;
     
     if (!bet.isFixed) {
-      updateBet(index, 'stake', stake.toString());
+      // Ao travar, salva o valor que estava sendo exibido no estado da aposta
+      updateBet(index, 'stake', currentCalculatedStake.toString());
     }
     
     updateBet(index, 'isFixed', !bet.isFixed);
     
+    // Garante que apenas uma aposta seja fixa por vez
     bets.forEach((_, i) => {
       if (i !== index && bets[i].isFixed) {
         updateBet(i, 'isFixed', false);
@@ -111,6 +146,7 @@ export function AumentadaCalculator({
           </label>
           <input
             type="number"
+            // Se houver aposta fixa, mostra o total calculado. Se não, mostra o input do usuário (totalStake)
             value={bets.some(bet => bet.isFixed) ? calculatedTotalStake.toFixed(2) : (totalStake || '')}
             onChange={(e) => setTotalStake(Number(e.target.value))}
             disabled={bets.some(bet => bet.isFixed)}
@@ -123,14 +159,12 @@ export function AumentadaCalculator({
             } ${bets.some(bet => bet.isFixed) ? 'opacity-50 cursor-not-allowed' : ''}`}
           />
         </div>
-        {/* ----- CORREÇÃO AQUI ----- */}
-        {/* Adicionado totalInvestment={calculatedTotalStake} */}
+        
         <CalculatorStats 
           profit={profit} 
           totalReturn={totalReturn} 
           totalInvestment={calculatedTotalStake} 
         />
-        {/* ----- FIM DA CORREÇÃO ----- */}
       </div>
 
       <div className="mb-4 sm:mb-8">
@@ -141,7 +175,10 @@ export function AumentadaCalculator({
         {bets.map((bet, index) => {
           const finalOdds = bet.odds + (bet.odds - 1) * (bet.increase / 100);
           const validBetIndex = bets.filter(b => b.odds > 0).findIndex(b => b === bet);
+          
+          // Se estiver fixa, usa o stake do estado (manual). Se não, usa o calculado (stakes array).
           const stake = bet.isFixed ? bet.stake : (bet.odds > 0 && validBetIndex !== -1 ? (stakes[validBetIndex] || 0) : 0);
+          
           const return_ = +(finalOdds * (stake || 0)).toFixed(2);
 
           return (
@@ -187,6 +224,7 @@ export function AumentadaCalculator({
                   <input
                     type="number"
                     translate="no"
+                    // Valor do input: Se fixo, valor do estado. Se não, valor calculado
                     value={bet.isFixed ? (bet.stake || '') : stake.toFixed(2)}
                     onChange={(e) => handleStakeChange(index, e.target.value)}
                     disabled={!bet.isFixed}

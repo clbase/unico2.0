@@ -71,7 +71,7 @@ export async function getShare(code: string) {
       data.data = (data.data as Bet[]).map((bet: any) => ({
         odds: Number(bet.odds) || 0,
         stake: Number(bet.stake) || 0,
-        // --- CORREÇÃO ADICIONADA AQUI ---
+        // --- CORREÇÃO: Recupera o input original para formatação correta ---
         oddsInput: bet.oddsInput || (Number(bet.odds) || 0).toString()
       }));
       break;
@@ -79,9 +79,14 @@ export async function getShare(code: string) {
       data.data = (data.data as LimitationBet[]).map((bet: any) => ({
         odds: Number(bet.odds) || 0,
         stake: Number(bet.stake) || 0,
+        // --- CORREÇÃO: Recupera campos avançados (Lay, Freebet, Editing) ---
         isEditing: false,
-        // --- CORREÇÃO ADICIONADA AQUI ---
-        oddsInput: bet.oddsInput || (Number(bet.odds) || 0).toString()
+        isFreebet: bet.isFreebet || false,
+        betMode: bet.betMode || 'back',
+        layOdd: Number(bet.layOdd) || 0,
+        layOddInput: bet.layOddInput || (Number(bet.layOdd) > 0 ? Number(bet.layOdd).toString() : ''),
+        oddsInput: bet.oddsInput || (Number(bet.odds) || 0).toString(),
+        stakeInput: bet.stakeInput || (Number(bet.stake) || 0).toString()
       }));
       break;
     case 'aumentada':
@@ -89,11 +94,13 @@ export async function getShare(code: string) {
         odds: Number(bet.odds) || 0,
         stake: Number(bet.stake) || 0,
         increase: Number(bet.increase) || 0,
-        // --- CORREÇÃO ADICIONADA AQUI ---
+        // --- CORREÇÃO: Recupera o estado isFixed para manter a linha travada ---
+        isFixed: bet.isFixed || false,
         oddsInput: bet.oddsInput || (Number(bet.odds) || 0).toString()
       }));
       break;
     case 'extracao':
+      // Mantido para compatibilidade de tipos, caso existam shares antigos
       data.data = {
         betType: data.data.betType || 'freebet',
         stake: Number(data.data.stake) || 0,

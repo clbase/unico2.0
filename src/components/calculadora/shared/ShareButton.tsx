@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import { Share2, Loader2 } from 'lucide-react';
-// --- TIPO ATUALIZADO ---
-import { CalculatorType, Bet, LimitationBet, AumentadaBet, ExtracaoBetState } from '../types';
-import { createShare } from '../../../lib/supabase'; // <-- CAMINHO CORRIGIDO
+import { CalculatorType, Bet, LimitationBet, AumentadaBet } from '../types';
+import { createShare } from '../../../lib/supabase';
 import { ShareModal } from './ShareModal';
 
 interface ShareButtonProps {
   isDarkMode: boolean;
   calculatorType: CalculatorType;
-  // --- TIPO ATUALIZADO ---
-  bets: Bet[] | LimitationBet[] | AumentadaBet[] | ExtracaoBetState;
+  bets: Bet[] | LimitationBet[] | AumentadaBet[];
   totalStake?: number;
+  compactMode?: boolean;
 }
 
 export function ShareButton({ isDarkMode, calculatorType, bets, totalStake }: ShareButtonProps) {
@@ -35,60 +34,50 @@ export function ShareButton({ isDarkMode, calculatorType, bets, totalStake }: Sh
       let shareData: any;
       let shareStake = totalStake;
 
-      // --- LÓGICA DE COMPARTILHAMENTO ATUALIZADA ---
-      if (calculatorType === 'extracao') { // <-- Renomeado
-        shareData = bets as ExtracaoBetState; // <-- Renomeado
-        shareStake = shareData.stake;
-        if (!shareData.stake || !shareData.backOdd || !shareData.layOdd) {
-          alert('Adicione valores válidos antes de compartilhar.');
-          setIsLoading(false);
-          return;
-        }
-      } else {
-        const validBets = (bets as Bet[]).filter(bet => bet.odds > 0);
-        
-        if (validBets.length === 0) {
-          alert('Adicione pelo menos uma aposta antes de compartilhar.');
-          setIsLoading(false);
-          return;
-        }
+      // Filtra apostas válidas (com odds > 0)
+      const validBets = (bets as Bet[]).filter(bet => bet.odds > 0);
+      
+      if (validBets.length === 0) {
+        alert('Adicione pelo menos uma aposta antes de compartilhar.');
+        setIsLoading(false);
+        return;
+      }
 
-        console.log('Attempting to share:', {
-          calculatorType,
-          validBetsCount: validBets.length,
-          totalStake
-        });
-        
-        shareData = validBets;
+      console.log('Attempting to share:', {
+        calculatorType,
+        validBetsCount: validBets.length,
+        totalStake
+      });
 
-        if (calculatorType === 'aumentada') {
-          const aumentadaBets = bets as AumentadaBet[];
-          const fixedBet = aumentadaBets.find(bet => bet.isFixed && bet.odds > 0);
+      // Por padrão, usamos uma cópia profunda das apostas para garantir o snapshot
+      shareData = JSON.parse(JSON.stringify(bets));
+
+      // --- Lógica Específica para Aumentada ---
+      if (calculatorType === 'aumentada') {
+        const aumentadaBets = bets as AumentadaBet[];
+        const fixedBet = aumentadaBets.find(bet => bet.isFixed);
+        
+        if (fixedBet) {
+          // Se tem aposta fixa, enviamos o array exato como está.
+          // O componente Calculator irá restaurar o "isFixed" e o "stake" deste objeto.
+          shareData = aumentadaBets;
           
-          if (fixedBet) {
-            const finalOdds = fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100);
-            const fixedReturn = fixedBet.stake * finalOdds;
-            
-            shareData = aumentadaBets.map(bet => {
-              if (bet === fixedBet) {
-                return { ...bet };
-              }
-              
-              if (bet.odds > 0) {
-                const betFinalOdds = bet.odds + (bet.odds - 1) * (bet.increase / 100);
-                const calculatedStake = +(fixedReturn / betFinalOdds).toFixed(2);
-                return { ...bet, stake: calculatedStake };
-              }
-              
-              return bet;
-            });
-            shareStake = undefined;
-          }
+          // Se tem fixo, o totalStake é irrelevante/consequência (será a soma), 
+          // então enviamos undefined para não sobrescrever visualmente ao carregar.
+          shareStake = undefined; 
         }
       }
-      // --- FIM DA LÓGICA ATUALIZADA ---
+      
+      // --- Lógica Específica para Limitação/Avançada ---
+      if (calculatorType === 'limitation') {
+         // Para limitação, enviamos as apostas com seus stakes individuais.
+         // O totalStake enviado será a soma deles, apenas para preencher o campo "Investimento Total" visualmente ao carregar.
+         const currentTotal = (bets as LimitationBet[]).reduce((acc, b) => acc + (Number(b.stake) || 0), 0);
+         shareData = bets;
+         shareStake = currentTotal;
+      }
 
-      if (!calculatorType || (Array.isArray(shareData) && !shareData.length) || (!Array.isArray(shareData) && !shareData)) {
+      if (!calculatorType || (Array.isArray(shareData) && !shareData.length)) {
         throw new Error('Invalid data for sharing');
       }
 
@@ -98,7 +87,8 @@ export function ShareButton({ isDarkMode, calculatorType, bets, totalStake }: Sh
         throw new Error('No share code received');
       }
 
-      const url = `${window.location.origin}?share=${code}`;
+      // --- CORREÇÃO DA URL: Adicionado /calculadora ---
+      const url = `${window.location.origin}/calculadora?share=${code}`;
       console.log('Share URL generated:', url);
       
       setShareUrl(url);
