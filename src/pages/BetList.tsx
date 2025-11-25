@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '../lib/supabase';
-import { Edit2, Save, Trash2, X, Plus, Calculator, Clock, CheckCircle2, Gift, RefreshCw, HelpCircle, TrendingUp } from 'lucide-react';
+import { Edit2, Save, Trash2, X, Plus, Calculator, Clock, CheckCircle2, Gift, RefreshCw, HelpCircle, TrendingUp, AlertCircle } from 'lucide-react';
 import { calculateBetReturn } from '../utils/bet';
 import { useTheme } from '../contexts/ThemeContext';
 import { formatCurrency } from '../utils/currency';
@@ -30,7 +30,7 @@ interface Bet {
 }
 
 interface GroupedBet {
-  betA: Bet;
+  betA: Bet | null;
   betB: Bet | null;
   betC: Bet | null;
   betD: Bet | null;
@@ -56,12 +56,20 @@ interface EditForm {
   };
 }
 
+// Helper para pegar a aposta principal do grupo com segurança
+const getMainBet = (group: GroupedBet): Bet | null => {
+  return group.betA || group.betB || group.betC || group.betD || group.betE || null;
+};
+
 const calculateGroupROI = (group: GroupedBet): number => {
   const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+  if (allBets.length === 0) return 0;
   if (allBets.some(bet => bet.status === 'pending')) return 0;
+  
   const totalInvestment = allBets.reduce((sum, bet) => sum + bet.investment, 0);
   const totalReturn = allBets.reduce((sum, bet) => sum + calculateBetReturn(bet), 0);
   const profit = totalReturn - totalInvestment;
+  
   return totalInvestment > 0 ? (profit / totalInvestment) * 100 : 0;
 };
 
@@ -89,6 +97,7 @@ export const BetList: React.FC = () => {
   const { isDark } = useTheme();
   const [bets, setBets] = useState<Bet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
   const [editingGroupKey, setEditingGroupKey] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({});
   const [hoveredBetId, setHoveredBetId] = useState<string | null>(null);
@@ -106,18 +115,47 @@ export const BetList: React.FC = () => {
 
   const fetchBets = async () => {
     try {
-      const { data, error } = await supabase
-        .from('bets')
-        .select('*')
-        .range(0, 99999) // AUMENTADO O LIMITE PARA 100.000 LINHAS
-        .order('event_date', { ascending: false })
-        .order('event_time', { ascending: false })
-        .order('created_at', { ascending: true });
+      setLoading(true);
+      setErrorMsg('');
+      
+      let allData: Bet[] = [];
+      let page = 0;
+      const pageSize = 1000; // Busca em lotes de 1000 para contornar o limite do servidor
+      let hasMore = true;
 
-      if (error) throw error;
-      setBets(data || []);
-    } catch (error) {
+      // Loop para buscar TODAS as páginas de dados
+      while (hasMore) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data, error } = await supabase
+          .from('bets')
+          .select('*')
+          .order('event_date', { ascending: false })
+          .order('event_time', { ascending: false })
+          .order('created_at', { ascending: true })
+          .range(from, to);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allData = [...allData, ...data];
+          
+          // Se retornou menos que o tamanho da página, é a última página
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++; // Prepara para buscar a próxima página
+          }
+        } else {
+          hasMore = false; // Nenhum dado retornado, fim da busca
+        }
+      }
+
+      setBets(allData);
+    } catch (error: any) {
       console.error('Error fetching bets:', error);
+      setErrorMsg('Erro ao carregar as apostas. Tente recarregar a página.');
     } finally {
       setLoading(false);
     }
@@ -132,6 +170,8 @@ export const BetList: React.FC = () => {
 
     groupedBets.forEach((group) => {
       const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+      if (allBets.length === 0) return;
+
       const allResolved = allBets.every(bet => bet.status !== 'pending');
       const groupInvestment = allBets.reduce((sum, bet) => sum + bet.investment, 0);
 
@@ -153,7 +193,9 @@ export const BetList: React.FC = () => {
 
   const calculateGroupProfit = (group: GroupedBet): number => {
     const bets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+    if (bets.length === 0) return 0;
     if (bets.some(bet => bet.status === 'pending')) return 0;
+    
     const totalInvestment = bets.reduce((sum, bet) => sum + bet.investment, 0);
     const totalReturn = bets.reduce((sum, bet) => sum + calculateBetReturn(bet), 0);
     return totalReturn - totalInvestment;
@@ -161,11 +203,12 @@ export const BetList: React.FC = () => {
 
   const groupBets = (bets: Bet[]): GroupedBet[] => {
     const grouped: { [key: string]: GroupedBet } = {};
+    
     bets.forEach((bet) => {
       const key = `${bet.event_date}-${bet.event_time}-${bet.group_id}`;
       if (!grouped[key]) {
         grouped[key] = {
-          betA: bet.house_type === 'A' ? bet : null as any,
+          betA: bet.house_type === 'A' ? bet : null,
           betB: bet.house_type === 'B' ? bet : null,
           betC: bet.house_type === 'C' ? bet : null,
           betD: bet.house_type === 'D' ? bet : null,
@@ -180,10 +223,18 @@ export const BetList: React.FC = () => {
         else if (bet.house_type === 'E') grouped[key].betE = bet;
       }
     });
+
     return Object.values(grouped).sort((a, b) => {
-      const dateCompare = new Date(b.betA.event_date).getTime() - new Date(a.betA.event_date).getTime();
+      const betA = getMainBet(a);
+      const betB = getMainBet(b);
+
+      if (!betA) return 1;
+      if (!betB) return -1;
+
+      const dateCompare = new Date(betB.event_date).getTime() - new Date(betA.event_date).getTime();
       if (dateCompare !== 0) return dateCompare;
-      return new Date(a.betA.created_at).getTime() - new Date(b.betA.created_at).getTime();
+      
+      return new Date(betA.created_at).getTime() - new Date(betB.created_at).getTime();
     });
   };
 
@@ -288,6 +339,7 @@ export const BetList: React.FC = () => {
       setEditForm({});
     } catch (error) {
       console.error('Error updating bets:', error);
+      alert('Erro ao salvar a edição. Tente novamente.');
     }
   };
 
@@ -300,6 +352,7 @@ export const BetList: React.FC = () => {
       setBets((prev) => prev.filter((b) => !betIds.includes(b.id)));
     } catch (error) {
       console.error('Error deleting bets:', error);
+      alert('Erro ao excluir aposta.');
     }
   };
 
@@ -316,10 +369,15 @@ export const BetList: React.FC = () => {
   };
 
   const formatDateTime = (date: string, time: string) => {
-    const [year, month, day] = date.split('-').map(Number);
-    const [hours, minutes] = time.split(':').map(Number);
-    const dateObj = new Date(year, month - 1, day, hours, minutes);
-    return format(dateObj, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+    if (!date || !time) return '-';
+    try {
+      const [year, month, day] = date.split('-').map(Number);
+      const [hours, minutes] = time.split(':').map(Number);
+      const dateObj = new Date(year, month - 1, day, hours, minutes);
+      return format(dateObj, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+    } catch (e) {
+      return `${date} ${time}`;
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -372,6 +430,13 @@ export const BetList: React.FC = () => {
           Nova Aposta
         </button>
       </div>
+
+      {errorMsg && (
+        <div className="bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded flex items-center gap-2">
+          <AlertCircle className="w-5 h-5" />
+          {errorMsg}
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -444,7 +509,10 @@ export const BetList: React.FC = () => {
             <tbody className="divide-y divide-gray-200 dark:divide-dark-700">
               {groupedBets.map((group) => {
                 const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+                const mainBet = getMainBet(group);
                 
+                if (!mainBet) return null;
+
                 return (
                   <React.Fragment key={group.key}>
                     {allBets.map((bet, index) => (
@@ -452,7 +520,7 @@ export const BetList: React.FC = () => {
                         {index === 0 && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-200" rowSpan={allBets.length}>
                             <div className="space-y-2">
-                              <div className="text-white dark:text-white">{formatDateTime(bet.event_date, bet.event_time)}</div>
+                              <div className="text-white dark:text-white">{formatDateTime(mainBet.event_date, mainBet.event_time)}</div>
                               <div className="text-xs space-y-1">
                                 <div className="font-medium">
                                   <span className="text-white dark:text-white">Lucro:</span>
