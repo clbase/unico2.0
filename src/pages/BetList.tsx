@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '../lib/supabase';
-import { Edit2, Save, Trash2, X, Plus, Calculator, Clock, CheckCircle2, Gift, RefreshCw, HelpCircle, TrendingUp, AlertCircle } from 'lucide-react';
+import { Edit2, Save, Trash2, X, Plus, Calculator, Clock, CheckCircle2, Gift, RefreshCw, HelpCircle, TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
 import { calculateBetReturn } from '../utils/bet';
 import { useTheme } from '../contexts/ThemeContext';
 import { formatCurrency } from '../utils/currency';
@@ -73,6 +73,16 @@ const calculateGroupROI = (group: GroupedBet): number => {
   return totalInvestment > 0 ? (profit / totalInvestment) * 100 : 0;
 };
 
+const calculateGroupProfit = (group: GroupedBet): number => {
+  const bets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+  if (bets.length === 0) return 0;
+  if (bets.some(bet => bet.status === 'pending')) return 0;
+  
+  const totalInvestment = bets.reduce((sum, bet) => sum + bet.investment, 0);
+  const totalReturn = bets.reduce((sum, bet) => sum + calculateBetReturn(bet), 0);
+  return totalReturn - totalInvestment;
+};
+
 const formatOdds = (odds: number): string => {
   if (odds % 1 !== 0 && odds.toString().split('.')[1]?.length > 2) {
     return odds.toString();
@@ -97,20 +107,28 @@ export const BetList: React.FC = () => {
   const { isDark } = useTheme();
   const [bets, setBets] = useState<Bet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [editingGroupKey, setEditingGroupKey] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({});
   const [hoveredBetId, setHoveredBetId] = useState<string | null>(null);
+  
+  const isMounted = useRef(true);
+
   const [stats, setStats] = useState<BetStats>({
     totalBets: 0, resolvedBets: 0, pendingBets: 0, pendingInvestment: 0
   });
 
   useEffect(() => {
+    isMounted.current = true;
     fetchBets();
+    return () => { isMounted.current = false; };
   }, []);
 
   useEffect(() => {
-    calculateStats();
+    if (bets.length > 0) {
+      calculateStats();
+    }
   }, [bets]);
 
   const fetchBets = async () => {
@@ -120,17 +138,21 @@ export const BetList: React.FC = () => {
       
       let allData: Bet[] = [];
       let page = 0;
-      const pageSize = 1000; // Busca em lotes de 1000 para contornar o limite do servidor
+      const pageSize = 2000; 
       let hasMore = true;
 
-      // Loop para buscar TODAS as páginas de dados
       while (hasMore) {
+        if (isMounted.current) {
+          setLoadingProgress(`Carregando apostas... (${allData.length} encontradas)`);
+        }
+        
         const from = page * pageSize;
         const to = from + pageSize - 1;
 
         const { data, error } = await supabase
           .from('bets')
           .select('*')
+          // Ordenação principal pela DATA e HORA do evento (descendente)
           .order('event_date', { ascending: false })
           .order('event_time', { ascending: false })
           .order('created_at', { ascending: true })
@@ -140,72 +162,73 @@ export const BetList: React.FC = () => {
 
         if (data && data.length > 0) {
           allData = [...allData, ...data];
-          
-          // Se retornou menos que o tamanho da página, é a última página
           if (data.length < pageSize) {
             hasMore = false;
           } else {
-            page++; // Prepara para buscar a próxima página
+            page++;
           }
         } else {
-          hasMore = false; // Nenhum dado retornado, fim da busca
+          hasMore = false;
         }
       }
 
-      setBets(allData);
+      if (isMounted.current) {
+        setBets(allData);
+      }
     } catch (error: any) {
       console.error('Error fetching bets:', error);
-      setErrorMsg('Erro ao carregar as apostas. Tente recarregar a página.');
+      if (isMounted.current) {
+        setErrorMsg('Erro ao carregar as apostas. Tente recarregar a página.');
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+        setLoadingProgress('');
+      }
     }
   };
 
   const calculateStats = () => {
-    const groupedBets = groupBets(bets);
-    let totalInvestment = 0;
-    let resolvedCount = 0;
-    let totalCount = groupedBets.length;
-    let pendingInvestment = 0;
+    setTimeout(() => {
+      if (!isMounted.current) return;
 
-    groupedBets.forEach((group) => {
-      const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
-      if (allBets.length === 0) return;
+      const groupedBets = groupBets(bets);
+      let totalInvestment = 0;
+      let resolvedCount = 0;
+      let totalCount = groupedBets.length;
+      let pendingInvestment = 0;
 
-      const allResolved = allBets.every(bet => bet.status !== 'pending');
-      const groupInvestment = allBets.reduce((sum, bet) => sum + bet.investment, 0);
+      groupedBets.forEach((group) => {
+        const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+        if (allBets.length === 0) return;
 
-      if (allResolved) {
-        resolvedCount++;
-        totalInvestment += groupInvestment;
-      } else {
-        pendingInvestment += groupInvestment;
-      }
-    });
+        const allResolved = allBets.every(bet => bet.status !== 'pending');
+        const groupInvestment = allBets.reduce((sum, bet) => sum + bet.investment, 0);
 
-    setStats({
-      totalBets: totalCount,
-      resolvedBets: resolvedCount,
-      pendingBets: totalCount - resolvedCount,
-      pendingInvestment
-    });
-  };
+        if (allResolved) {
+          resolvedCount++;
+          totalInvestment += groupInvestment;
+        } else {
+          pendingInvestment += groupInvestment;
+        }
+      });
 
-  const calculateGroupProfit = (group: GroupedBet): number => {
-    const bets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
-    if (bets.length === 0) return 0;
-    if (bets.some(bet => bet.status === 'pending')) return 0;
-    
-    const totalInvestment = bets.reduce((sum, bet) => sum + bet.investment, 0);
-    const totalReturn = bets.reduce((sum, bet) => sum + calculateBetReturn(bet), 0);
-    return totalReturn - totalInvestment;
+      setStats({
+        totalBets: totalCount,
+        resolvedBets: resolvedCount,
+        pendingBets: totalCount - resolvedCount,
+        pendingInvestment
+      });
+    }, 0);
   };
 
   const groupBets = (bets: Bet[]): GroupedBet[] => {
     const grouped: { [key: string]: GroupedBet } = {};
     
     bets.forEach((bet) => {
-      const key = `${bet.event_date}-${bet.event_time}-${bet.group_id}`;
+      const groupIdSafe = bet.group_id || `single-${bet.id}`;
+      const key = `${bet.event_date}-${bet.event_time}-${groupIdSafe}`;
+      
       if (!grouped[key]) {
         grouped[key] = {
           betA: bet.house_type === 'A' ? bet : null,
@@ -224,6 +247,7 @@ export const BetList: React.FC = () => {
       }
     });
 
+    // CORREÇÃO NA ORDENAÇÃO: Combinando Data + Hora
     return Object.values(grouped).sort((a, b) => {
       const betA = getMainBet(a);
       const betB = getMainBet(b);
@@ -231,10 +255,18 @@ export const BetList: React.FC = () => {
       if (!betA) return 1;
       if (!betB) return -1;
 
-      const dateCompare = new Date(betB.event_date).getTime() - new Date(betA.event_date).getTime();
-      if (dateCompare !== 0) return dateCompare;
-      
-      return new Date(betA.created_at).getTime() - new Date(betB.created_at).getTime();
+      // Combina data e hora em um timestamp para comparação precisa
+      const dateTimeA = new Date(`${betA.event_date}T${betA.event_time}`).getTime();
+      const dateTimeB = new Date(`${betB.event_date}T${betB.event_time}`).getTime();
+
+      // Se as datas/horas forem válidas, ordena por data decrescente (mais recente primeiro)
+      if (!isNaN(dateTimeA) && !isNaN(dateTimeB)) {
+        const diff = dateTimeB - dateTimeA;
+        if (diff !== 0) return diff;
+      }
+
+      // Desempate por data de criação (mais recente primeiro)
+      return new Date(betB.created_at).getTime() - new Date(betA.created_at).getTime();
     });
   };
 
@@ -307,7 +339,7 @@ export const BetList: React.FC = () => {
 
       setBets(prev => prev.map(b => {
         const formData = editForm[b.id];
-        if (formData) {
+        if (formData && formData.investment !== undefined) {
           let dbInvestment = formData.investment;
           let dbReturn = formData.odds * formData.investment;
           if (b.bet_mode === 'lay') {
@@ -339,7 +371,7 @@ export const BetList: React.FC = () => {
       setEditForm({});
     } catch (error) {
       console.error('Error updating bets:', error);
-      alert('Erro ao salvar a edição. Tente novamente.');
+      alert('Erro ao salvar a edição.');
     }
   };
 
@@ -369,14 +401,18 @@ export const BetList: React.FC = () => {
   };
 
   const formatDateTime = (date: string, time: string) => {
-    if (!date || !time) return '-';
+    if (!date) return '-';
     try {
       const [year, month, day] = date.split('-').map(Number);
-      const [hours, minutes] = time.split(':').map(Number);
-      const dateObj = new Date(year, month - 1, day, hours, minutes);
-      return format(dateObj, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+      if (!year || !month || !day) return date;
+      
+      const dateObj = new Date(year, month - 1, day);
+      if (isNaN(dateObj.getTime())) return date;
+
+      const timeStr = time ? ` às ${time.slice(0, 5)}` : '';
+      return `${format(dateObj, "dd/MM/yyyy", { locale: ptBR })}${timeStr}`;
     } catch (e) {
-      return `${date} ${time}`;
+      return date;
     }
   };
 
@@ -400,21 +436,19 @@ export const BetList: React.FC = () => {
     }
   };
 
-  const shouldShowCashoutColumn = (): boolean => {
-    const groupedBets = groupBets(bets);
-    return groupedBets.some(group => groupHasCashout(group));
-  };
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div className="flex flex-col items-center justify-center h-full space-y-4">
+        <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
+        {loadingProgress && (
+          <p className="text-gray-500 dark:text-gray-400 animate-pulse">{loadingProgress}</p>
+        )}
       </div>
     );
   }
 
   const groupedBets = groupBets(bets);
-  const showCashoutColumn = shouldShowCashoutColumn();
+  const showCashoutColumn = groupedBets.some(group => groupHasCashout(group));
 
   return (
     <div className="space-y-6">
