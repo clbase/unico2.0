@@ -197,6 +197,7 @@ export const Dashboard: React.FC = () => {
       const { data: betsData, error: betsError } = await supabase
         .from('bets')
         .select('*')
+        .range(0, 99999) // Mantém o limite alto para cálculos corretos
         .order('event_date', { ascending: false })
         .order('event_time', { ascending: false })
         .order('created_at', { ascending: true });
@@ -207,6 +208,7 @@ export const Dashboard: React.FC = () => {
       const { data: earningsData, error: earningsError } = await supabase
         .from('earnings')
         .select('*')
+        .range(0, 99999) // Mantém o limite alto para cálculos corretos
         .order('event_date', { ascending: false })
         .order('event_time', { ascending: false });
 
@@ -602,7 +604,7 @@ export const Dashboard: React.FC = () => {
   const groupedBets = groupBets(bets);
   const metaProgress = calculateMetaProgress();
 
-  // Combine recent bets and earnings for display
+  // Combinar apostas e ganhos recentes para exibição (Limitado a 10 itens)
   const recentItems = [
     ...groupedBets.map(group => ({
       type: 'bet' as const,
@@ -629,7 +631,7 @@ export const Dashboard: React.FC = () => {
     const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime();
     if (dateCompare !== 0) return dateCompare;
     return b.time.localeCompare(a.time);
-  }).slice(0, 10);
+  }).slice(0, 10); // <--- LIMITADO A 10 ITEMS
 
   const periodButtons = [
     { key: 'today', label: 'Hoje' },

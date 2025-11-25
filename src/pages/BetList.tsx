@@ -109,6 +109,7 @@ export const BetList: React.FC = () => {
       const { data, error } = await supabase
         .from('bets')
         .select('*')
+        .range(0, 99999) // AUMENTADO O LIMITE PARA 100.000 LINHAS
         .order('event_date', { ascending: false })
         .order('event_time', { ascending: false })
         .order('created_at', { ascending: true });

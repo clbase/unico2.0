@@ -9,11 +9,7 @@ interface ShareButtonProps {
   calculatorType: CalculatorType;
   bets: Bet[] | LimitationBet[] | AumentadaBet[];
   totalStake?: number;
-<<<<<<< HEAD
   compactMode?: boolean;
-=======
-  compactMode?: boolean; // Adicionado para suportar o prop passado no Calculator.tsx
->>>>>>> 18294bed6860e2086edc63aa29f4b18554278d85
 }
 
 export function ShareButton({ isDarkMode, calculatorType, bets, totalStake }: ShareButtonProps) {
@@ -39,10 +35,6 @@ export function ShareButton({ isDarkMode, calculatorType, bets, totalStake }: Sh
       let shareStake = totalStake;
 
       // Filtra apostas válidas (com odds > 0)
-<<<<<<< HEAD
-=======
-      // Como LimitationBet e AumentadaBet estendem Bet, podemos tratar como Bet[] para esta verificação
->>>>>>> 18294bed6860e2086edc63aa29f4b18554278d85
       const validBets = (bets as Bet[]).filter(bet => bet.odds > 0);
       
       if (validBets.length === 0) {
@@ -56,7 +48,6 @@ export function ShareButton({ isDarkMode, calculatorType, bets, totalStake }: Sh
         validBetsCount: validBets.length,
         totalStake
       });
-<<<<<<< HEAD
 
       // Por padrão, usamos uma cópia profunda das apostas para garantir o snapshot
       shareData = JSON.parse(JSON.stringify(bets));
@@ -85,53 +76,18 @@ export function ShareButton({ isDarkMode, calculatorType, bets, totalStake }: Sh
          shareData = bets;
          shareStake = currentTotal;
       }
-=======
-      
-      shareData = validBets;
-
-      // Lógica específica para Aumentada (Calcula o stake final se houver fixa)
-      if (calculatorType === 'aumentada') {
-        const aumentadaBets = bets as AumentadaBet[];
-        const fixedBet = aumentadaBets.find(bet => bet.isFixed && bet.odds > 0);
-        
-        if (fixedBet) {
-          const finalOdds = fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100);
-          const fixedReturn = fixedBet.stake * finalOdds;
-          
-          shareData = aumentadaBets.map(bet => {
-            if (bet === fixedBet) {
-              return { ...bet };
-            }
-            
-            if (bet.odds > 0) {
-              const betFinalOdds = bet.odds + (bet.odds - 1) * (bet.increase / 100);
-              const calculatedStake = +(fixedReturn / betFinalOdds).toFixed(2);
-              return { ...bet, stake: calculatedStake };
-            }
-            
-            return bet;
-          });
-          shareStake = undefined; // Stake total é recalculado ou irrelevante no contexto do share fixo
-        }
-      }
->>>>>>> 18294bed6860e2086edc63aa29f4b18554278d85
 
       if (!calculatorType || (Array.isArray(shareData) && !shareData.length)) {
         throw new Error('Invalid data for sharing');
       }
 
-      // @ts-ignore - Ignorando erro de tipo se createShare ainda esperar ExtracaoBetState na assinatura
       const code = await createShare(calculatorType, shareData, shareStake);
       
       if (!code) {
         throw new Error('No share code received');
       }
 
-<<<<<<< HEAD
-      // --- CORREÇÃO DA URL: Adicionado /calculadora ---
-=======
-      // URL ajustada com /calculadora
->>>>>>> 18294bed6860e2086edc63aa29f4b18554278d85
+      // URL correta com /calculadora
       const url = `${window.location.origin}/calculadora?share=${code}`;
       console.log('Share URL generated:', url);
       
