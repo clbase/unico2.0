@@ -1,13 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '../lib/supabase';
-import { Edit2, Save, Trash2, X, Plus, Calculator, Clock, CheckCircle2, Gift, RefreshCw, HelpCircle, TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
+import { 
+  Edit2, Save, Trash2, X, Plus, Calculator, Clock, 
+  Gift, RefreshCw, HelpCircle, 
+  Calendar, Archive, ChevronLeft, ChevronRight, Loader2, AlertCircle, TrendingUp
+} from 'lucide-react';
 import { calculateBetReturn } from '../utils/bet';
 import { useTheme } from '../contexts/ThemeContext';
 import { formatCurrency } from '../utils/currency';
 
+// --- Interfaces ---
 interface Bet {
   id: string;
   house_a: string;
@@ -36,13 +41,13 @@ interface GroupedBet {
   betD: Bet | null;
   betE: Bet | null;
   key: string;
+  timestamp: number;
 }
 
-interface BetStats {
-  totalBets: number;
-  resolvedBets: number;
-  pendingBets: number;
-  pendingInvestment: number;
+interface GeneralStats {
+  totalBetsAllTime: number;
+  pendingBetsCount: number;
+  pendingValue: number;
 }
 
 interface EditForm {
@@ -56,7 +61,7 @@ interface EditForm {
   };
 }
 
-// Helper para pegar a aposta principal do grupo com segurança
+// --- Helpers ---
 const getMainBet = (group: GroupedBet): Bet | null => {
   return group.betA || group.betB || group.betC || group.betD || group.betE || null;
 };
@@ -102,130 +107,123 @@ const getDisplayStake = (bet: Bet): number => {
   return bet.investment;
 };
 
+// --- Componente Principal ---
 export const BetList: React.FC = () => {
   const navigate = useNavigate();
   const { isDark } = useTheme();
-  const [bets, setBets] = useState<Bet[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [editingGroupKey, setEditingGroupKey] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({});
-  const [hoveredBetId, setHoveredBetId] = useState<string | null>(null);
-  
   const isMounted = useRef(true);
 
-  const [stats, setStats] = useState<BetStats>({
-    totalBets: 0, resolvedBets: 0, pendingBets: 0, pendingInvestment: 0
+  // Estado dos dados
+  const [bets, setBets] = useState<Bet[]>([]);
+  const [generalStats, setGeneralStats] = useState<GeneralStats>({
+    totalBetsAllTime: 0,
+    pendingBetsCount: 0,
+    pendingValue: 0
   });
+
+  // Estado de UI
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  
+  // Estado de Filtro (Mês Atual/Arquivados)
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // Estado de Edição
+  const [editingGroupKey, setEditingGroupKey] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({});
+
+  // --- Effects ---
 
   useEffect(() => {
     isMounted.current = true;
-    fetchBets();
+    loadPageData();
     return () => { isMounted.current = false; };
-  }, []);
+  }, [selectedDate]); // Recarrega quando muda o mês
 
-  useEffect(() => {
-    if (bets.length > 0) {
-      calculateStats();
-    }
-  }, [bets]);
+  // --- Data Fetching ---
 
-  const fetchBets = async () => {
+  const loadPageData = async () => {
+    setLoading(true);
+    setErrorMsg('');
     try {
-      setLoading(true);
-      setErrorMsg('');
+      await Promise.all([
+        fetchMonthBets(),
+        fetchGeneralStats()
+      ]);
+    } catch (error) {
+      console.error('Erro ao carregar dados da página:', error);
+    } finally {
+      if (isMounted.current) setLoading(false);
+    }
+  };
+
+  const fetchGeneralStats = async () => {
+    try {
+      // Pendentes
+      const { data: pendingData, error: pendingError } = await supabase
+        .from('bets')
+        .select('investment, group_id')
+        .eq('status', 'pending');
+
+      if (pendingError) throw pendingError;
+
+      // Total Geral (Count rápido)
+      const { count: totalCount, error: countError } = await supabase
+        .from('bets')
+        .select('*', { count: 'exact', head: true });
       
-      let allData: Bet[] = [];
-      let page = 0;
-      const pageSize = 2000; 
-      let hasMore = true;
+      if (countError) throw countError;
 
-      while (hasMore) {
-        if (isMounted.current) {
-          setLoadingProgress(`Carregando apostas... (${allData.length} encontradas)`);
-        }
-        
-        const from = page * pageSize;
-        const to = from + pageSize - 1;
-
-        const { data, error } = await supabase
-          .from('bets')
-          .select('*')
-          // Ordenação principal pela DATA e HORA do evento (descendente)
-          .order('event_date', { ascending: false })
-          .order('event_time', { ascending: false })
-          .order('created_at', { ascending: true })
-          .range(from, to);
-
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-          allData = [...allData, ...data];
-          if (data.length < pageSize) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
+      const uniquePendingGroups = new Set(pendingData?.map(b => b.group_id));
+      const totalPendingValue = pendingData?.reduce((acc, curr) => acc + curr.investment, 0) || 0;
+      // Estimativa de "Entradas"
+      const estimatedTotalSurebets = Math.floor((totalCount || 0) / 2);
 
       if (isMounted.current) {
-        setBets(allData);
+        setGeneralStats({
+          totalBetsAllTime: estimatedTotalSurebets,
+          pendingBetsCount: uniquePendingGroups.size,
+          pendingValue: totalPendingValue
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao buscar estatísticas gerais:', error);
+    }
+  };
+
+  const fetchMonthBets = async () => {
+    try {
+      // Datas de início e fim do mês selecionado (formato YYYY-MM-DD)
+      const startStr = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+      const endStr = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+
+      const { data, error } = await supabase
+        .from('bets')
+        .select('*')
+        .gte('event_date', startStr)
+        .lte('event_date', endStr)
+        .order('event_date', { ascending: false })
+        .order('event_time', { ascending: false })
+        .order('created_at', { ascending: true })
+        .range(0, 9999); 
+
+      if (error) throw error;
+
+      if (isMounted.current) {
+        setBets(data || []);
       }
     } catch (error: any) {
-      console.error('Error fetching bets:', error);
-      if (isMounted.current) {
-        setErrorMsg('Erro ao carregar as apostas. Tente recarregar a página.');
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-        setLoadingProgress('');
-      }
+      console.error('Erro ao buscar apostas do mês:', error);
+      setErrorMsg('Erro ao carregar lista do mês.');
     }
   };
 
-  const calculateStats = () => {
-    setTimeout(() => {
-      if (!isMounted.current) return;
+  // --- Lógica de Agrupamento e Exibição ---
 
-      const groupedBets = groupBets(bets);
-      let totalInvestment = 0;
-      let resolvedCount = 0;
-      let totalCount = groupedBets.length;
-      let pendingInvestment = 0;
-
-      groupedBets.forEach((group) => {
-        const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
-        if (allBets.length === 0) return;
-
-        const allResolved = allBets.every(bet => bet.status !== 'pending');
-        const groupInvestment = allBets.reduce((sum, bet) => sum + bet.investment, 0);
-
-        if (allResolved) {
-          resolvedCount++;
-          totalInvestment += groupInvestment;
-        } else {
-          pendingInvestment += groupInvestment;
-        }
-      });
-
-      setStats({
-        totalBets: totalCount,
-        resolvedBets: resolvedCount,
-        pendingBets: totalCount - resolvedCount,
-        pendingInvestment
-      });
-    }, 0);
-  };
-
-  const groupBets = (bets: Bet[]): GroupedBet[] => {
+  const groupBets = (betsList: Bet[]): GroupedBet[] => {
     const grouped: { [key: string]: GroupedBet } = {};
     
-    bets.forEach((bet) => {
+    betsList.forEach((bet) => {
       const groupIdSafe = bet.group_id || `single-${bet.id}`;
       const key = `${bet.event_date}-${bet.event_time}-${groupIdSafe}`;
       
@@ -237,6 +235,7 @@ export const BetList: React.FC = () => {
           betD: bet.house_type === 'D' ? bet : null,
           betE: bet.house_type === 'E' ? bet : null,
           key,
+          timestamp: new Date(`${bet.event_date}T${bet.event_time}`).getTime()
         };
       } else {
         if (bet.house_type === 'A') grouped[key].betA = bet;
@@ -247,37 +246,19 @@ export const BetList: React.FC = () => {
       }
     });
 
-    // CORREÇÃO NA ORDENAÇÃO: Combinando Data + Hora
     return Object.values(grouped).sort((a, b) => {
-      const betA = getMainBet(a);
-      const betB = getMainBet(b);
-
-      if (!betA) return 1;
-      if (!betB) return -1;
-
-      // Combina data e hora em um timestamp para comparação precisa
-      const dateTimeA = new Date(`${betA.event_date}T${betA.event_time}`).getTime();
-      const dateTimeB = new Date(`${betB.event_date}T${betB.event_time}`).getTime();
-
-      // Se as datas/horas forem válidas, ordena por data decrescente (mais recente primeiro)
-      if (!isNaN(dateTimeA) && !isNaN(dateTimeB)) {
-        const diff = dateTimeB - dateTimeA;
-        if (diff !== 0) return diff;
-      }
-
-      // Desempate por data de criação (mais recente primeiro)
-      return new Date(betB.created_at).getTime() - new Date(betA.created_at).getTime();
+      const diff = b.timestamp - a.timestamp;
+      if (diff !== 0) return diff;
+      const createdA = getMainBet(a)?.created_at || '';
+      const createdB = getMainBet(b)?.created_at || '';
+      return createdB.localeCompare(createdA);
     });
   };
 
-  const groupHasCashout = (group: GroupedBet): boolean => {
-    const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
-    if (editingGroupKey === group.key) {
-      return allBets.some(bet => editForm[bet.id]?.status === 'cashout');
-    }
-    return allBets.some(bet => bet.status === 'cashout');
-  };
+  const groupedBets = groupBets(bets);
+  const totalBetsThisMonth = groupedBets.length;
 
+  // --- Handlers de Edição ---
   const handleEdit = (group: GroupedBet) => {
     setEditingGroupKey(group.key);
     const newEditForm: EditForm = {};
@@ -299,10 +280,8 @@ export const BetList: React.FC = () => {
   const handleSave = async (group: GroupedBet) => {
     try {
       const betsToUpdate = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
-      
       for (const bet of betsToUpdate) {
         const formData = editForm[bet.id];
-        
         let dbInvestment = formData.investment;
         let dbReturn = formData.odds * formData.investment;
 
@@ -318,8 +297,7 @@ export const BetList: React.FC = () => {
           dbReturn = formData.investment * finalOdds;
         }
 
-        const updatedBet = {
-          ...bet,
+        await supabase.from('bets').update({
           odds: formData.odds,
           investment: dbInvestment,
           dutching_investment: dbReturn,
@@ -327,76 +305,34 @@ export const BetList: React.FC = () => {
           market: formData.market,
           cashout_amount: formData.status === 'cashout' ? (formData.cashout_amount || null) : null,
           increase_percentage: formData.increase_percentage || 0
-        };
-
-        const { error } = await supabase
-          .from('bets')
-          .update(updatedBet)
-          .eq('id', bet.id);
-
-        if (error) throw error;
+        }).eq('id', bet.id);
       }
-
-      setBets(prev => prev.map(b => {
-        const formData = editForm[b.id];
-        if (formData && formData.investment !== undefined) {
-          let dbInvestment = formData.investment;
-          let dbReturn = formData.odds * formData.investment;
-          if (b.bet_mode === 'lay') {
-            dbInvestment = formData.investment * (formData.odds - 1);
-            dbReturn = dbInvestment + formData.investment;
-          } else if (b.is_freebet) {
-            dbInvestment = 0;
-            dbReturn = (formData.odds - 1) * formData.investment;
-          } else {
-             const increase = formData.increase_percentage || 0;
-             const finalOdds = formData.odds + (formData.odds - 1) * (increase / 100);
-             dbReturn = formData.investment * finalOdds;
-          }
-          return {
-            ...b,
-            odds: formData.odds,
-            investment: dbInvestment,
-            dutching_investment: dbReturn,
-            status: formData.status,
-            market: formData.market,
-            cashout_amount: formData.status === 'cashout' ? (formData.cashout_amount || undefined) : undefined,
-            increase_percentage: formData.increase_percentage || 0
-          };
-        }
-        return b;
-      }));
       
+      await loadPageData();
       setEditingGroupKey(null);
       setEditForm({});
     } catch (error) {
       console.error('Error updating bets:', error);
-      alert('Erro ao salvar a edição.');
+      alert('Erro ao salvar.');
     }
   };
 
   const handleDelete = async (group: GroupedBet) => {
-    if (!confirm('Tem certeza que deseja excluir esta aposta?')) return;
+    if (!confirm('Excluir aposta?')) return;
     try {
-      const betIds = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean).map(bet => bet!.id);
-      const { error } = await supabase.from('bets').delete().in('id', betIds);
-      if (error) throw error;
-      setBets((prev) => prev.filter((b) => !betIds.includes(b.id)));
+      const betIds = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean).map(b => b!.id);
+      await supabase.from('bets').delete().in('id', betIds);
+      setBets(prev => prev.filter(b => !betIds.includes(b.id)));
+      fetchGeneralStats();
     } catch (error) {
-      console.error('Error deleting bets:', error);
-      alert('Erro ao excluir aposta.');
+      console.error('Error deleting:', error);
     }
   };
 
   const handleInputChange = (betId: string, field: string, value: string) => {
     setEditForm(prev => ({
       ...prev,
-      [betId]: {
-        ...prev[betId],
-        [field]: (field === 'status' || field === 'market') ? value : 
-                field === 'cashout_amount' ? (value === '' ? undefined : Number(value)) :
-                Number(value),
-      },
+      [betId]: { ...prev[betId], [field]: field === 'status' || field === 'market' ? value : Number(value) },
     }));
   };
 
@@ -404,16 +340,10 @@ export const BetList: React.FC = () => {
     if (!date) return '-';
     try {
       const [year, month, day] = date.split('-').map(Number);
-      if (!year || !month || !day) return date;
-      
       const dateObj = new Date(year, month - 1, day);
-      if (isNaN(dateObj.getTime())) return date;
-
       const timeStr = time ? ` às ${time.slice(0, 5)}` : '';
       return `${format(dateObj, "dd/MM/yyyy", { locale: ptBR })}${timeStr}`;
-    } catch (e) {
-      return date;
-    }
+    } catch { return date; }
   };
 
   const getStatusColor = (status: string) => {
@@ -426,43 +356,69 @@ export const BetList: React.FC = () => {
     }
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'won': return 'Ganhou';
-      case 'lost': return 'Perdeu';
-      case 'returned': return 'Devolvida';
-      case 'cashout': return 'Cashout';
-      default: return 'Pendente';
+  const getStatusText = (status: string) => status === 'won' ? 'Ganhou' : status === 'lost' ? 'Perdeu' : status === 'returned' ? 'Devolvida' : status === 'cashout' ? 'Cashout' : 'Pendente';
+  
+  const showCashoutColumn = groupedBets.some(group => {
+    if (editingGroupKey === group.key) {
+       const bets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+       return bets.some(b => editForm[b.id]?.status === 'cashout');
     }
-  };
+    const bets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
+    return bets.some(b => b.status === 'cashout');
+  });
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full space-y-4">
-        <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
-        {loadingProgress && (
-          <p className="text-gray-500 dark:text-gray-400 animate-pulse">{loadingProgress}</p>
-        )}
-      </div>
-    );
-  }
-
-  const groupedBets = groupBets(bets);
-  const showCashoutColumn = groupedBets.some(group => groupHasCashout(group));
+  // --- UI de Navegação de Mês ---
+  const handlePrevMonth = () => setSelectedDate(prev => subMonths(prev, 1));
+  const handleNextMonth = () => setSelectedDate(prev => addMonths(prev, 1));
+  
+  // Verifica se é o mês atual para desabilitar o botão "Próximo" (opcional, removi o disable para permitir navegação livre)
+  // const isCurrentMonth = format(selectedDate, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
+  const monthLabel = format(selectedDate, 'MMMM yyyy', { locale: ptBR });
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Planilha de Apostas</h1>
-        <button
-          onClick={() => navigate('/new-bet')}
-          className={`flex items-center gap-2 py-2 px-4 rounded hover:opacity-90 transition-colors ${
-            isDark ? 'bg-[#2e2e33] text-[#b0b0b5] hover:bg-[#3a3a3f]' : 'bg-gray-800 text-white hover:bg-gray-900'
-          }`}
-        >
-          <Plus className="w-5 h-5" />
-          Nova Aposta
-        </button>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
+          Planilha de Apostas
+        </h1>
+        
+        <div className="flex items-center gap-3">
+           {/* Seletor de Mês (Simples e Seguro) */}
+           <div className="flex items-center bg-white dark:bg-dark-800 rounded-lg p-1 border border-gray-200 dark:border-dark-600 shadow-sm">
+              <button 
+                onClick={handlePrevMonth} 
+                className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md transition-colors text-gray-600 dark:text-gray-300"
+                title="Mês Anterior"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              
+              <div className="flex items-center gap-2 px-4 min-w-[160px] justify-center border-x border-gray-100 dark:border-dark-700">
+                 <Calendar className="w-4 h-4 text-purple-500" />
+                 <span className="text-sm font-medium capitalize text-gray-800 dark:text-gray-200 select-none">
+                   {monthLabel}
+                 </span>
+              </div>
+
+              <button 
+                onClick={handleNextMonth} 
+                className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md transition-colors text-gray-600 dark:text-gray-300" 
+                title="Próximo Mês"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+           </div>
+
+           <button
+            onClick={() => navigate('/new-bet')}
+            className={`flex items-center gap-2 py-2.5 px-4 rounded-lg hover:opacity-90 transition-colors shadow-sm ${
+              isDark ? 'bg-[#2e2e33] text-[#b0b0b5] hover:bg-[#3a3a3f]' : 'bg-gray-800 text-white hover:bg-gray-900'
+            }`}
+          >
+            <Plus className="w-5 h-5" />
+            <span className="hidden sm:inline">Nova Aposta</span>
+          </button>
+        </div>
       </div>
 
       {errorMsg && (
@@ -472,57 +428,84 @@ export const BetList: React.FC = () => {
         </div>
       )}
 
-      {/* Stats Cards */}
+      {/* Cards de Estatísticas - Otimizados */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md">
+        
+        {/* Card 1: Total de Apostas (Geral - All Time) */}
+        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Total de Apostas</p>
-              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">{stats.totalBets}</p>
+              <p className="text-xs text-gray-400">Geral</p>
+              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mt-1">
+                {generalStats.totalBetsAllTime}
+              </p>
             </div>
-            <div className="p-3 bg-[#7200C9]/20 rounded-full">
-              <Calculator className="w-6 h-6 text-[#7200C9]" />
+            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full">
+              <Calculator className="w-6 h-6 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md">
+
+        {/* Card 2: Total de Apostas DO MÊS SELECIONADO */}
+        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md border-l-4 border-purple-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Apostas Resolvidas</p>
-              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">{stats.resolvedBets}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Apostas do Mês</p>
+              <p className="text-xs text-purple-500 capitalize">{monthLabel.split(' ')[0]}</p>
+              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mt-1">
+                {totalBetsThisMonth}
+              </p>
             </div>
-            <div className="p-3 bg-[#7200C9]/20 rounded-full">
-              <CheckCircle2 className="w-6 h-6 text-[#7200C9]" />
+            <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-full">
+              <Calendar className="w-6 h-6 text-purple-600 dark:text-purple-400" />
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md">
+
+        {/* Card 3: Apostas Pendentes (Geral) */}
+        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md border-l-4 border-yellow-500">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Apostas Pendentes</p>
-              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">{stats.pendingBets}</p>
+              <p className="text-xs text-yellow-500">Em aberto</p>
+              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mt-1">
+                {generalStats.pendingBetsCount}
+              </p>
             </div>
-            <div className="p-3 bg-[#7200C9]/20 rounded-full">
-              <Clock className="w-6 h-6 text-[#7200C9]" />
+            <div className="p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-full">
+              <Clock className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md">
+
+        {/* Card 4: Valores Pendentes (Geral) */}
+        <div className="bg-white dark:bg-dark-800 p-6 rounded-lg shadow-md border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Valores Pendentes</p>
-              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">
-                {formatCurrency(stats.pendingInvestment)}
+              <p className="text-xs text-green-500">Investido</p>
+              <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mt-1">
+                {formatCurrency(generalStats.pendingValue)}
               </p>
             </div>
-            <div className="p-3 bg-[#7200C9]/20 rounded-full">
-              <Calculator className="w-6 h-6 text-[#7200C9]" />
+            <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-full">
+              <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400" />
             </div>
           </div>
         </div>
       </div>
 
+      {/* Tabela de Apostas */}
       <div className="bg-white dark:bg-dark-800 rounded-lg shadow-md overflow-hidden">
+        <div className="bg-gray-50 dark:bg-dark-750 px-6 py-3 border-b border-gray-200 dark:border-dark-600 flex justify-between items-center">
+           <h3 className="font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+              <Archive className="w-4 h-4" />
+              Registros de <span className="text-purple-600 dark:text-purple-400 capitalize">{monthLabel}</span>
+           </h3>
+           {loading && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
@@ -541,7 +524,17 @@ export const BetList: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-dark-700">
-              {groupedBets.map((group) => {
+              {groupedBets.length === 0 && !loading ? (
+                <tr>
+                  <td colSpan={showCashoutColumn ? 9 : 8} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                    <div className="flex flex-col items-center gap-2">
+                      <Archive className="w-8 h-8 text-gray-300" />
+                      <p>Nenhuma aposta encontrada para {monthLabel}.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                groupedBets.map((group) => {
                 const allBets = [group.betA, group.betB, group.betC, group.betD, group.betE].filter(Boolean) as Bet[];
                 const mainBet = getMainBet(group);
                 
@@ -578,18 +571,22 @@ export const BetList: React.FC = () => {
                             </div>
                           </td>
                         )}
-                        <td 
-                          className={`px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-200 transition-colors cursor-pointer ${hoveredBetId === bet.id ? 'bg-gray-100 dark:bg-dark-750' : ''}`}
-                          onMouseEnter={() => setHoveredBetId(bet.id)}
-                          onMouseLeave={() => setHoveredBetId(null)}
-                        >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-200">
                           <div className="flex items-center gap-2">
                             {bet.house_type === 'A' ? bet.house_a : bet.house_b}
-                            {bet.is_freebet && <Gift className="w-4 h-4 text-green-500" title="Aposta Grátis" />}
-                            {bet.bet_mode === 'lay' && <RefreshCw className="w-4 h-4 text-pink-500" title="Aposta Lay" />}
+                            {bet.is_freebet && (
+                              <span title="Aposta Grátis">
+                                <Gift className="w-4 h-4 text-green-500" />
+                              </span>
+                            )}
+                            {bet.bet_mode === 'lay' && (
+                              <span title="Aposta Lay">
+                                <RefreshCw className="w-4 h-4 text-pink-500" />
+                              </span>
+                            )}
                           </div>
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white transition-colors ${hoveredBetId === bet.id ? 'bg-gray-100 dark:bg-dark-750' : ''}`} onMouseEnter={() => setHoveredBetId(bet.id)} onMouseLeave={() => setHoveredBetId(null)}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white">
                           {editingGroupKey === group.key ? (
                             <input
                               type="number"
@@ -602,7 +599,7 @@ export const BetList: React.FC = () => {
                           ) : formatOdds(bet.odds)}
                         </td>
 
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white transition-colors ${hoveredBetId === bet.id ? 'bg-gray-100 dark:bg-dark-750' : ''}`} onMouseEnter={() => setHoveredBetId(bet.id)} onMouseLeave={() => setHoveredBetId(null)}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white">
                           {editingGroupKey === group.key && bet.bet_mode !== 'lay' ? (
                             <input
                               type="number"
@@ -621,7 +618,7 @@ export const BetList: React.FC = () => {
                           )}
                         </td>
 
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white transition-colors ${hoveredBetId === bet.id ? 'bg-gray-100 dark:bg-dark-750' : ''}`} onMouseEnter={() => setHoveredBetId(bet.id)} onMouseLeave={() => setHoveredBetId(null)}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white">
                           {editingGroupKey === group.key ? (
                             <input
                               type="number"
@@ -636,20 +633,18 @@ export const BetList: React.FC = () => {
                               {formatCurrency(getDisplayStake(bet))}
                               {bet.bet_mode === 'lay' && (
                                 <div className="group relative flex items-center">
-                                  <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
-                                  <div className="absolute bottom-full right-0 mb-2 w-max px-2 py-1 bg-gray-900 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none whitespace-nowrap">
-                                    Responsabilidade: {formatCurrency(bet.investment)}
-                                    <div className="absolute top-full right-1.5 border-4 border-transparent border-t-gray-900"></div>
-                                  </div>
+                                  <span title={`Responsabilidade: ${formatCurrency(bet.investment)}`}>
+                                    <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                                  </span>
                                 </div>
                               )}
                             </div>
                           )}
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white transition-colors ${hoveredBetId === bet.id ? 'bg-gray-100 dark:bg-dark-750' : ''}`} onMouseEnter={() => setHoveredBetId(bet.id)} onMouseLeave={() => setHoveredBetId(null)}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700 dark:text-white">
                           {formatCurrency(calculateBetReturn(bet))}
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-center transition-colors ${hoveredBetId === bet.id ? 'bg-gray-100 dark:bg-dark-750' : ''}`} onMouseEnter={() => setHoveredBetId(bet.id)} onMouseLeave={() => setHoveredBetId(null)}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
                           {editingGroupKey === group.key ? (
                             <select
                               value={editForm[bet.id]?.status || bet.status}
@@ -669,7 +664,7 @@ export const BetList: React.FC = () => {
                           )}
                         </td>
                         {showCashoutColumn && (
-                          <td className={`px-6 py-4 whitespace-nowrap text-sm text-center transition-colors ${hoveredBetId === bet.id ? 'bg-gray-100 dark:bg-dark-750' : ''}`} onMouseEnter={() => setHoveredBetId(bet.id)} onMouseLeave={() => setHoveredBetId(null)}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
                             {editingGroupKey === group.key ? (
                               (editForm[bet.id]?.status === 'cashout') ? (
                                 <input
@@ -708,7 +703,8 @@ export const BetList: React.FC = () => {
                     <tr className="h-2 bg-gray-50 dark:bg-dark-900"><td colSpan={showCashoutColumn ? 9 : 8}></td></tr>
                   </React.Fragment>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>
