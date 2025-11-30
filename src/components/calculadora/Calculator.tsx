@@ -85,7 +85,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     
     const fixedBet = validBets.find(bet => bet.isFixed);
     
-    // Caso 1: Existe uma aposta fixa (calcula as outras com base nela)
+    // Caso 1: Existe uma aposta fixa
     if (fixedBet) {
       const finalOddFixed = fixedBet.odds + (fixedBet.odds - 1) * (fixedBet.increase / 100);
       const fixedReturn = (fixedBet.stake || 0) * finalOddFixed;
@@ -102,7 +102,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
         setAumentadaBets(newBets);
       }
     } 
-    // Caso 2: Nenhuma fixa (calcula Dutching baseado no total)
+    // Caso 2: Nenhuma fixa
     else {
       if (aumentadaTotalStake <= 0) {
         if (aumentadaBets.some(b => b.stake !== 0)) {
@@ -111,18 +111,15 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
         return;
       }
       
-      // 1. Prepara as odds finais
       const betsWithFinalOdds = validBets.map(bet => ({
         ...bet,
         finalOdd: bet.odds + (bet.odds - 1) * (bet.increase / 100)
       }));
 
-      // 2. Soma dos inversos (Dutching)
       const sumInverse = betsWithFinalOdds.reduce((sum, bet) => {
         return bet.finalOdd > 0 ? sum + (1 / bet.finalOdd) : sum;
       }, 0);
 
-      // 3. Distribui o stake
       const newBets = aumentadaBets.map((bet) => {
         const finalOdd = bet.odds + (bet.odds - 1) * (bet.increase / 100);
         if (finalOdd <= 0 || sumInverse <= 0 || bet.odds <= 0) return { ...bet, stake: 0 };
@@ -131,7 +128,6 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
         return { ...bet, stake: +rawStake.toFixed(2) };
       });
       
-      // 4. Ajuste de centavos
       const currentTotal = newBets.reduce((sum, b) => sum + b.stake, 0);
       const diff = aumentadaTotalStake - currentTotal;
       if (diff !== 0 && newBets.some(b => b.stake > 0)) {
@@ -162,17 +158,32 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     
     const totalInvestment = bets.reduce((sum, bet) => {
       const stakeVal = Number(bet.stake) || 0;
-      return (bet.isFreebet || bet.betMode === 'lay') ? sum : sum + stakeVal;
+      
+      // Se for Lay, o investimento é a responsabilidade (Stake * (Odd - 1))
+      if (bet.betMode === 'lay') {
+        const odd = bet.layOdd || 0;
+        return sum + (odd > 1 ? stakeVal * (odd - 1) : 0);
+      }
+      
+      // Se for Freebet Back, custo é zero
+      if (bet.isFreebet) return sum;
+      
+      // Back Normal
+      return sum + stakeVal;
     }, 0);
+    
     calcResult.totalInvestment = totalInvestment;
 
     // Modo Manual
     if (!isAutoCalculate) {
       const returns = bets.map(bet => {
         const stakeVal = Number(bet.stake) || 0;
-        if (!bet.odds || stakeVal <= 0) return 0;
-        if (bet.betMode === 'lay') return stakeVal; 
-        return bet.isFreebet ? (bet.odds - 1) * stakeVal : bet.odds * stakeVal;
+        const odd = bet.betMode === 'lay' ? (bet.layOdd || 0) : bet.odds;
+        
+        if (stakeVal <= 0 || (odd <= 1 && bet.betMode === 'lay') || (odd <= 0 && bet.betMode === 'back')) return 0;
+
+        if (bet.betMode === 'lay') return stakeVal; // No lay, se ganhar, retorna o stake
+        return bet.isFreebet ? (odd - 1) * stakeVal : odd * stakeVal;
       });
 
       const liability = bets.reduce((sum, bet) => {
@@ -191,7 +202,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
          return returns[index] - totalInvestment;
       });
       
-      const validProfits = possibleProfits.filter((_, i) => bets[i].odds > 0);
+      const validProfits = possibleProfits.filter((_, i) => (bets[i].betMode === 'lay' ? (bets[i].layOdd || 0) > 0 : bets[i].odds > 0));
       const minProfit = validProfits.length > 0 ? Math.min(...validProfits) : 0;
       
       calcResult.profit = minProfit;
@@ -203,7 +214,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
 
     // Modo Automático: Se ninguém está editando, retorna estado atual
     if (!editingBet || !editingBet.stake || (editingBet.betMode === 'back' && editingBet.odds <= 0) || (editingBet.betMode === 'lay' && (editingBet.layOdd || 0) <= 0)) {
-       // Se existem apostas (ex: carregadas de link), calcula resultados sem alterar stakes
+       // Mantém lógica de visualização de cálculos existentes...
        if (bets.some(b => b.stake > 0)) {
           const returns = bets.map(b => {
              const s = Number(b.stake)||0;
@@ -211,30 +222,16 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
              return b.isFreebet ? (b.odds - 1) * s : b.odds * s;
           });
           
-          // Calcula responsabilidade do lay
           const liability = bets.reduce((sum, b) => {
              const s = Number(b.stake)||0;
              if(b.betMode === 'lay' && b.layOdd) return sum + (s * (b.layOdd - 1));
              return sum;
           }, 0);
 
-          // Calcula lucro se Back ganhar ou se Lay ganhar
-          let profit = 0;
-          const isExtraction = bets.some(b => b.betMode === 'lay');
-          
-          if(isExtraction) {
-             const backBet = bets.find(b => b.betMode === 'back');
-             const layBet = bets.find(b => b.betMode === 'lay');
-             if(backBet && layBet) {
-               const backProfit = (backBet.isFreebet ? (backBet.odds - 1)*backBet.stake : backBet.odds*backBet.stake - backBet.stake) - (layBet.stake * ((layBet.layOdd||0)-1));
-               const layProfit = layBet.stake - (backBet.isFreebet ? 0 : backBet.stake);
-               profit = Math.min(backProfit, layProfit);
-             }
-          } else {
-             const validR = returns.filter((_, i) => bets[i].odds > 0);
-             const minR = validR.length ? Math.min(...validR) : 0;
-             profit = minR - totalInvestment;
-          }
+          // Lógica simplificada de lucro
+          const validR = returns.filter((_, i) => (bets[i].betMode === 'lay' ? (bets[i].layOdd || 0) > 0 : bets[i].odds > 0));
+          const minR = validR.length ? Math.min(...validR) : 0;
+          const profit = minR - totalInvestment;
 
           calcResult.stakes = bets.map(b => b.stake);
           calcResult.returns = returns;
@@ -249,8 +246,10 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
        return { newBets, calcResult };
     }
 
-    // Lógica de Extração (Back + Lay)
-    const isExtractionMode = bets.some(b => b.betMode === 'lay');
+    // CORREÇÃO AQUI:
+    // Só entra no "Modo de Extração" (1 Back vs 1 Lay) se tiver EXATAMENTE 2 linhas.
+    // Se tiver mais linhas, usa a lógica genérica (else).
+    const isExtractionMode = bets.some(b => b.betMode === 'lay') && bets.length === 2;
 
     if (isExtractionMode) {
       const backBet = bets.find(b => b.betMode === 'back');
@@ -310,10 +309,17 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
       };
       
     } else {
-      // Lógica Avançada (Limitation padrão)
+      // Lógica Avançada Genérica (para 3+ linhas ou sem Lay)
+      // Agora suporta Lay Bets em múltiplas linhas também
+      
       let editingStake = Number(editingBet.stake) || 0;
-      let targetValue;
-      if (editingBet.isFreebet) {
+      let targetValue = 0;
+
+      // Determina o "Retorno Alvo" baseado na linha que está sendo editada
+      if (editingBet.betMode === 'lay') {
+        // Se editando Lay: Retorno = Stake (pois se Lay ganha, ganha o stake)
+        targetValue = editingStake;
+      } else if (editingBet.isFreebet) {
         targetValue = (editingBet.odds - 1) * editingStake;
       } else {
         targetValue = editingBet.odds * editingStake;
@@ -325,10 +331,22 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
 
       for (let i = 0; i < bets.length; i++) {
         const bet = bets[i];
-        if (targetValue <= 0 || bet.odds <= 0) {
+        const currentOdd = bet.betMode === 'lay' ? (bet.layOdd || 0) : bet.odds;
+
+        if (targetValue <= 0 || (currentOdd <= 0 && bet.betMode !== 'lay') || (currentOdd <= 1 && bet.betMode === 'lay')) {
           bet.stake = (bet.isEditing ? bet.stake : 0);
         } else {
-          let divisor = bet.isFreebet ? (bet.odds - 1) : bet.odds;
+          let divisor = 0;
+          
+          // Define o divisor com base no tipo da aposta para atingir o TargetValue
+          if (bet.betMode === 'lay') {
+            divisor = 1; // Retorno no Lay é igual ao Stake
+          } else if (bet.isFreebet) {
+            divisor = currentOdd - 1;
+          } else {
+            divisor = currentOdd;
+          }
+
           if (divisor <= 0) {
             bet.stake = 0;
           } else {
@@ -337,14 +355,30 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
         }
         
         stakes.push(bet.stake);
-        if (!bet.isFreebet) {
-          totalInvestmentCalc += (Number(bet.stake) || 0);
+        
+        // Calcula investimento total somando Backs e Responsabilidades de Lays
+        const stakeVal = Number(bet.stake) || 0;
+        if (bet.betMode === 'lay') {
+           const layOdd = bet.layOdd || 0;
+           if (layOdd > 1) totalInvestmentCalc += stakeVal * (layOdd - 1);
+        } else if (!bet.isFreebet) {
+           totalInvestmentCalc += stakeVal;
         }
         
-        returns.push(bet.isFreebet ? (bet.odds - 1) * (Number(bet.stake) || 0) : bet.odds * (Number(bet.stake) || 0));
+        // Calcula retorno individual
+        if (bet.betMode === 'lay') {
+          returns.push(stakeVal);
+        } else {
+          returns.push(bet.isFreebet ? (currentOdd - 1) * stakeVal : currentOdd * stakeVal);
+        }
       }
       
-      const validReturns = returns.filter(r => r > 0);
+      const validReturns = returns.filter((_, i) => {
+         const bet = bets[i];
+         const odd = bet.betMode === 'lay' ? (bet.layOdd || 0) : bet.odds;
+         return odd > 0;
+      });
+
       const totalReturn = validReturns.length > 0 ? Math.min(...validReturns) : 0;
       const profit = totalReturn - totalInvestmentCalc;
       const roi = totalInvestmentCalc > 0 ? (profit / totalInvestmentCalc) * 100 : 0;
@@ -383,7 +417,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     }
   }, [activeTab, calculatedLimitationBets, limitationBets]);
 
-  // --- RESTAURAÇÃO DO SHARE (Correção Principal) ---
+  // --- RESTAURAÇÃO DO SHARE ---
   useEffect(() => {
     if (!initialState) return;
     
@@ -397,11 +431,9 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
         
       case 'limitation':
         const limBets = initialState.bets as LimitationBet[];
-        // Calcula o total investido baseada nas apostas carregadas para exibição, se necessário
-        // Note que Limitation usa 'calcResult.totalInvestment' para exibição, não 'totalStake' state
         setLimitationBets(limBets.map((bet, idx) => ({
           ...bet,
-          isEditing: idx === 0, // Define o primeiro como "ativo" para habilitar recálculos se o usuário mexer
+          isEditing: idx === 0,
           isFreebet: bet.isFreebet || false,
           betMode: bet.betMode || 'back',
           layOdd: bet.layOdd || 0
@@ -413,9 +445,7 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
         const fixedBet = augBets.find(b => b.isFixed);
         
         if (fixedBet) {
-          // Se tem fixa, carrega exatamente como veio (com stake manual do usuário)
           setAumentadaBets(augBets);
-          // Atualiza o input total apenas para referência visual (soma dos stakes carregados)
           const sumStake = augBets.reduce((acc, b) => acc + (Number(b.stake) || 0), 0);
           setAumentadaTotalStake(sumStake);
         } else {
@@ -483,12 +513,10 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
     const newBets = [...aumentadaBets];
     if (field === 'isFixed') {
       if (value === true && !newBets[index].isFixed) {
-        // Ao fixar, garante que o valor atual (possivelmente calculado) se torne o valor fixo
         const currentCalculatedStake = newBets[index].stake;
         newBets[index].stake = currentCalculatedStake;
       }
       newBets[index] = { ...newBets[index], [field]: value as boolean };
-      // Desmarca outros se este for marcado
       if (value === true) {
         for (let i = 0; i < newBets.length; i++) {
           if (i !== index) newBets[i].isFixed = false;
@@ -635,7 +663,6 @@ function CalculatorComponent({ initialState }: CalculatorComponentProps) {
       if (bet.bet_mode === 'lay') {
         params.append(`bet_mode_${key}`, 'lay');
       }
-      // --- CORREÇÃO: Envia o parâmetro 'increase_X' se estiver na aba Aumentada ---
       if (activeTab === 'aumentada' && bet.increase > 0) {
         params.append(`increase_${key}`, bet.increase.toString());
       }
