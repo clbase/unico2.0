@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, Shield, Crown, FileSpreadsheet, Search, Filter } from 'lucide-react';
+import { X, Users, Shield, Crown, FileSpreadsheet, Search, Filter, Copy, Check } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { User } from './types';
 
@@ -17,6 +17,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [movingUsers, setMovingUsers] = useState<Set<string>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -72,16 +73,24 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
   };
 
+  const handleCopyId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
   const getUserCategory = (user: User): string => {
     const isAdmin = user.raw_user_meta_data?.is_admin === 'true';
     const category = user.raw_user_meta_data?.category;
     
-    // Admins always go to administradores category
     if (isAdmin || category === 'administradores') {
       return 'administradores';
     }
     
-    // Default category for non-admin users
     return category || 'assinatura_planilha';
   };
 
@@ -143,7 +152,6 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             </button>
           </div>
 
-          {/* Search and Filter */}
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -181,7 +189,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <thead className="bg-gray-50 dark:bg-dark-700 sticky top-0">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Usuário
+                    Usuário / UID
                   </th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Categoria Atual
@@ -196,16 +204,34 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   const currentCategory = getUserCategory(user);
                   const isProtected = user.email === 'claiverg@gmail.com';
                   const isMoving = movingUsers.has(user.id);
+                  const isCopied = copiedId === user.id;
                   
                   return (
                     <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-dark-700">
                       <td className="px-6 py-4">
-                        <div>
+                        <div className="flex flex-col gap-0.5">
                           <div className="text-sm font-medium text-gray-900 dark:text-white">
                             {user.email}
                           </div>
                           <div className="text-sm text-gray-500 dark:text-gray-400">
                             {user.raw_user_meta_data?.phone || 'Telefone não informado'}
+                          </div>
+                          {/* UID Display com Botão */}
+                          <div className="flex items-center gap-2 mt-1">
+                            <code className="text-xs text-gray-400 dark:text-gray-500 font-mono bg-gray-100 dark:bg-dark-900 px-1.5 py-0.5 rounded select-all">
+                              {user.id}
+                            </code>
+                            <button
+                              onClick={() => handleCopyId(user.id)}
+                              className="text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-dark-600"
+                              title="Copiar UID"
+                            >
+                              {isCopied ? (
+                                <Check className="w-3.5 h-3.5 text-green-500" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
                           </div>
                         </div>
                       </td>
